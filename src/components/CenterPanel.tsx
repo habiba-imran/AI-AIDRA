@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { gridCells, victims, ambulances, rescueTeam, type CellType } from '../data/placeholder';
+import type { Ambulance, CellType, GridCell, RescueTeam, Victim } from '../types';
 
-const CELL_SIZE = 32;
+const CELL_SIZE = 28;
 const GRID_SIZE = 18;
 
 const cellColors: Record<CellType, string> = {
@@ -42,58 +42,102 @@ function getCellKey(row: number, col: number) {
   return `${row}-${col}`;
 }
 
-export default function CenterPanel() {
+function severityUi(sev: Victim['severity']): 'Critical' | 'Moderate' | 'Minor' {
+  if (sev === 'critical') return 'Critical';
+  if (sev === 'moderate') return 'Moderate';
+  return 'Minor';
+}
+
+interface CenterPanelProps {
+  grid: GridCell[][];
+  victims: Victim[];
+  ambulances: Ambulance[];
+  rescueTeam: RescueTeam;
+  routeAmb1?: Array<{ row: number; col: number }>;
+  routeAmb2?: Array<{ row: number; col: number }>;
+  routeTeam?: Array<{ row: number; col: number }>;
+}
+
+export default function CenterPanel({
+  grid,
+  victims,
+  ambulances,
+  rescueTeam,
+  routeAmb1 = [],
+  routeAmb2 = [],
+  routeTeam = [],
+}: CenterPanelProps) {
   const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null);
 
-  const cellMap = new Map<string, typeof gridCells[0]>();
-  gridCells.forEach((c) => cellMap.set(getCellKey(c.row, c.col), c));
+  const cellMap = new Map<string, GridCell>();
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const cell = grid[r]?.[c];
+      if (cell) cellMap.set(getCellKey(r, c), cell);
+    }
+  }
 
-  const victimMap = new Map<string, typeof victims[0]>();
+  const victimMap = new Map<string, Victim>();
   victims.forEach((v) => victimMap.set(getCellKey(v.row, v.col), v));
 
-  const ambMap = new Map<string, typeof ambulances[0]>();
-  ambulances.forEach((a) => ambMap.set(getCellKey(a.row, a.col), a));
+  const ambMap = new Map<string, Ambulance>();
+  ambulances.forEach((a) => ambMap.set(getCellKey(a.currentRow, a.currentCol), a));
 
-  const teamKey = getCellKey(rescueTeam.row, rescueTeam.col);
+  const teamKey = getCellKey(rescueTeam.currentRow, rescueTeam.currentCol);
 
   const routeCellColors = new Map<string, string>();
+  routeAmb1.forEach(({ row: r, col: c }) => {
+    routeCellColors.set(getCellKey(r, c), '#3b82f6');
+  });
+  routeAmb2.forEach(({ row: r, col: c }) => {
+    routeCellColors.set(getCellKey(r, c), '#22d3ee');
+  });
+  routeTeam.forEach(({ row: r, col: c }) => {
+    routeCellColors.set(getCellKey(r, c), '#eab308');
+  });
   ambulances.forEach((amb) => {
-    amb.route.forEach(([r, c]) => {
-      routeCellColors.set(getCellKey(r, c), amb.routeColor);
+    amb.route.forEach(({ row: r, col: c }) => {
+      const k = getCellKey(r, c);
+      if (!routeCellColors.has(k)) {
+        routeCellColors.set(k, amb.routeColor);
+      }
     });
   });
-  rescueTeam.route.forEach(([r, c]) => {
-    routeCellColors.set(getCellKey(r, c), '#eab308');
+  rescueTeam.route.forEach(({ row: r, col: c }) => {
+    const k = getCellKey(r, c);
+    if (!routeCellColors.has(k)) {
+      routeCellColors.set(k, '#eab308');
+    }
   });
 
   const hovered = hoveredCell ? cellMap.get(getCellKey(hoveredCell.row, hoveredCell.col)) : null;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden">
       {/* Objective Banner */}
-      <div className="shrink-0 bg-[#451a03] border-b border-amber-900/50 px-4 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-amber-500" />
-          <span className="text-amber-400 text-[12px] font-semibold">Active Objective: Minimize Risk Exposure</span>
+      <div className="shrink-0 bg-[#451a03] border-b border-amber-900/50 px-2.5 py-1 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+          <span className="text-amber-400 text-[10px] font-semibold leading-tight truncate">Objective: Minimize risk</span>
         </div>
-        <span className="text-amber-500/70 text-[10px] font-mono-display">
-          Algorithm: A* | Trade-off: +40% Time, -80% Risk
+        <span className="text-amber-500/70 text-[8px] font-mono-display shrink-0 hidden sm:inline">
+          A* · time↔risk
         </span>
       </div>
 
       {/* Map Title */}
-      <div className="shrink-0 px-4 pt-3 pb-1 flex items-center justify-between">
-        <span className="text-[10px] font-semibold tracking-[0.15em] text-[#3b82f6] uppercase">
-          Urban Disaster Zone — Grid Map
+      <div className="shrink-0 px-2.5 pt-1.5 pb-0.5 flex items-center justify-between gap-2">
+        <span className="text-[9px] font-semibold tracking-[0.12em] text-[#3b82f6] uppercase truncate">
+          Grid map
         </span>
-        <span className="text-[10px] text-[#64748b]">(hover cell for details)</span>
+        <span className="text-[8px] text-[#64748b] shrink-0">Hover cells</span>
       </div>
 
       {/* Grid Map */}
-      <div className="flex-1 flex items-start justify-center overflow-auto px-4 pb-2">
+      <div className="flex-1 min-h-0 flex items-start justify-center overflow-auto px-2 pb-1">
         <div className="relative">
           {/* Column labels */}
-          <div className="flex ml-[20px]">
+          <div className="flex ml-[18px]">
             {Array.from({ length: GRID_SIZE }, (_, c) => (
               <div key={c} className="text-[7px] text-[#475569] font-mono-display text-center" style={{ width: CELL_SIZE }}>
                 {c}
@@ -162,10 +206,10 @@ export default function CenterPanel() {
                     )}
                     {victim && (
                       <div
-                        className={`absolute w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-[#f1f5f9] z-20 ${
-                          victim.severity === 'Critical'
+                        className={`absolute w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-[#f1f5f9] z-20 ${
+                          severityUi(victim.severity) === 'Critical'
                             ? 'bg-red-500 badge-glow-red'
-                            : victim.severity === 'Moderate'
+                            : severityUi(victim.severity) === 'Moderate'
                               ? 'bg-amber-500 badge-glow-amber'
                               : 'bg-green-500 badge-glow-green'
                         }`}
@@ -175,7 +219,7 @@ export default function CenterPanel() {
                     )}
                     {amb && (
                       <div
-                        className="absolute w-5 h-5 rounded-full flex items-center justify-center text-[10px] z-20"
+                        className="absolute w-4 h-4 rounded-full flex items-center justify-center text-[8px] z-20"
                         style={{
                           backgroundColor: amb.routeColor,
                           boxShadow: `0 0 8px ${amb.routeColor}80`,
@@ -185,7 +229,7 @@ export default function CenterPanel() {
                       </div>
                     )}
                     {isTeam && (
-                      <div className="absolute w-5 h-5 rounded-full bg-yellow-500 flex items-center justify-center text-[10px] z-20 glow-amber">
+                      <div className="absolute w-4 h-4 rounded-full bg-yellow-500 flex items-center justify-center text-[8px] z-20 glow-amber">
                         👷
                       </div>
                     )}
@@ -227,8 +271,8 @@ export default function CenterPanel() {
       </div>
 
       {/* Map Legend */}
-      <div className="shrink-0 px-4 pb-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[9px] text-[#94a3b8]">
+      <div className="shrink-0 px-2 pb-1.5 pt-0.5 border-t border-[#1e293b]/80">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[8px] text-[#94a3b8] leading-tight">
           {[
             { color: '#1e293b', label: 'Road' },
             { color: '#450a0a', label: 'Fire Zone', extra: '🔥' },
@@ -238,30 +282,30 @@ export default function CenterPanel() {
             { color: '#1e3a5f', label: 'Medical Ctr', extra: '🏥' },
             { color: '#1c1917', label: 'Base', extra: '⭐' },
           ].map((item) => (
-            <div key={item.label} className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded-sm border border-[#334155]" style={{ backgroundColor: item.color }} />
+            <div key={item.label} className="flex items-center gap-0.5">
+              <div className="w-2 h-2 rounded-sm border border-[#334155]" style={{ backgroundColor: item.color }} />
               <span>{item.label}</span>
             </div>
           ))}
-          <div className="w-px h-3 bg-[#1e293b] mx-1" />
+          <div className="w-px h-2.5 bg-[#1e293b] mx-0.5" />
           {[
-            { color: '#ef4444', label: 'Critical Victim' },
-            { color: '#f59e0b', label: 'Moderate Victim' },
-            { color: '#22c55e', label: 'Minor Victim' },
+            { color: '#ef4444', label: 'Crit.' },
+            { color: '#f59e0b', label: 'Mod.' },
+            { color: '#22c55e', label: 'Min.' },
           ].map((item) => (
-            <div key={item.label} className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+            <div key={item.label} className="flex items-center gap-0.5">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
               <span>{item.label}</span>
             </div>
           ))}
-          <div className="w-px h-3 bg-[#1e293b] mx-1" />
+          <div className="w-px h-2.5 bg-[#1e293b] mx-0.5" />
           {[
-            { color: '#3b82f6', label: 'Amb1 Route' },
-            { color: '#06b6d4', label: 'Amb2 Route' },
-            { color: '#eab308', label: 'Team Route' },
+            { color: '#3b82f6', label: 'A1' },
+            { color: '#06b6d4', label: 'A2' },
+            { color: '#eab308', label: 'Team' },
           ].map((item) => (
-            <div key={item.label} className="flex items-center gap-1">
-              <div className="w-3 h-1.5 rounded-full" style={{ backgroundColor: item.color }} />
+            <div key={item.label} className="flex items-center gap-0.5">
+              <div className="w-2 h-1 rounded-full" style={{ backgroundColor: item.color }} />
               <span>{item.label}</span>
             </div>
           ))}

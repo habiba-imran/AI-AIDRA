@@ -546,4 +546,4 @@ export const TABS = [
   { id: 'analytics', label: 'Analytics', icon: 'BarChart3' },
 ] as const;
 
-export type TabId = typeof TABS[number]['id'];
+export type { TabId } from '../types';

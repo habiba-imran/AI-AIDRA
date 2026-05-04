@@ -1,13 +1,80 @@
+import { useMemo } from 'react';
 import { Play, RotateCcw, Sparkles, GitBranch, Filter } from 'lucide-react';
-import {
-  cspVariables, cspConstraints, cspTreeNodes, cspPerfData, cspConstraintMatrix,
-} from '../data/placeholder';
+import type { CspConstraint, CspSolution, CspTreeNode, Victim } from '../types';
 
 function SectionLabel({ children, color = 'text-[#3b82f6]' }: { children: React.ReactNode; color?: string }) {
   return <div className={`text-[10px] font-semibold tracking-[0.15em] uppercase mb-2 mt-1 ${color}`}>{children}</div>;
 }
 
-function TreeNode({ nodeId, nodes, x, y }: { nodeId: string; nodes: Record<string, typeof cspTreeNodes[string]>; x: number; y: number }) {
+type SvgTreeNodeData = {
+  label: string;
+  valid: boolean;
+  start?: boolean;
+  solution?: boolean;
+  backtrack?: boolean;
+  children: string[];
+};
+
+function flattenCspTree(root: CspTreeNode): Record<string, SvgTreeNodeData> {
+  const out: Record<string, SvgTreeNodeData> = {};
+  const walk = (n: CspTreeNode) => {
+    out[n.id] = {
+      label: n.label,
+      valid: n.valid,
+      start: n.start,
+      solution: n.solution,
+      backtrack: n.backtrack,
+      children: n.children.map((c) => c.id),
+    };
+    for (const c of n.children) walk(c);
+  };
+  walk(root);
+  return out;
+}
+
+function constraintMatrixFromConstraints(constraints: CspConstraint[]): boolean[][] {
+  if (constraints.length < 6) return [];
+  const c = constraints.map((x) => x.satisfied);
+  return [
+    [c[0], true, true, true, c[0]],
+    [true, c[1], true, true, c[1]],
+    [true, true, c[2], true, c[2]],
+    [true, true, true, c[3], c[3]],
+    [c[4], c[4], c[4], c[4], c[4]],
+    [c[5], c[5], c[5], true, c[5]],
+  ];
+}
+
+function severityLabel(s: Victim['severity']): string {
+  if (s === 'critical') return 'Critical';
+  if (s === 'moderate') return 'Moderate';
+  return 'Minor';
+}
+
+function severityEmoji(s: Victim['severity']): string {
+  if (s === 'critical') return '🔴';
+  if (s === 'moderate') return '🟡';
+  return '🟢';
+}
+
+function ambVictimLines(
+  ids: string[],
+  victims: Victim[]
+): { first: string; second: string } {
+  if (ids.length === 0) {
+    return { first: ' → —', second: '' };
+  }
+  const line = (id: string) => {
+    const sev = victims.find((v) => v.id === id)?.severity ?? 'minor';
+    return `${id} (${severityLabel(sev)}) ${severityEmoji(sev)}`;
+  };
+  return {
+    first: ` → ${line(ids[0])}`,
+    second: ids.length > 1 ? line(ids[1]) : '',
+  };
+}
+
+function TreeNode({ nodeId, nodes, x, y }: { nodeId: string; nodes: Record<string, SvgTreeNodeData>; x: number; y: number }) {
   const node = nodes[nodeId];
   if (!node) return null;
 
@@ -69,8 +136,86 @@ function TreeNode({ nodeId, nodes, x, y }: { nodeId: string; nodes: Record<strin
   );
 }
 
-export default function CspSolver() {
+export default function CspSolver({
+  cspSolution,
+  victims,
+  onRunCsp,
+}: {
+  cspSolution: CspSolution | null;
+  victims: Victim[];
+  onRunCsp: () => void;
+}) {
   const constraintHeaders = ['Amb1', 'Amb2', 'Team', 'Kits', 'Overall'];
+
+  const flatTree = useMemo(() => {
+    if (!cspSolution?.tree) {
+      return {
+        start: {
+          label: 'START',
+          valid: true,
+          children: [] as string[],
+          start: true,
+        },
+      } as Record<string, SvgTreeNodeData>;
+    }
+    return flattenCspTree(cspSolution.tree);
+  }, [cspSolution]);
+
+  const validTimelineSteps = useMemo(
+    () => (cspSolution?.assignmentSteps ?? []).filter((s) => s.valid),
+    [cspSolution]
+  );
+
+  const constraintMatrix = useMemo(
+    () =>
+      cspSolution?.constraints?.length
+        ? constraintMatrixFromConstraints(cspSolution.constraints)
+        : [],
+    [cspSolution]
+  );
+
+  const backtrackImprovementPct = useMemo(() => {
+    const rows = cspSolution?.perfComparison;
+    if (!rows || rows.length < 3) return null;
+    const noHeur = rows[0].backtracks;
+    const withHeur = rows[2].backtracks;
+    if (noHeur === 0) return withHeur === 0 ? 100 : 0;
+    return Math.round((1 - withHeur / noHeur) * 100);
+  }, [cspSolution]);
+
+  const amb1Lines = useMemo(
+    () => ambVictimLines(cspSolution?.amb1Victims ?? [], victims),
+    [cspSolution, victims]
+  );
+  const amb2Lines = useMemo(
+    () => ambVictimLines(cspSolution?.amb2Victims ?? [], victims),
+    [cspSolution, victims]
+  );
+
+  const statusBadgeText =
+    cspSolution == null
+      ? '— Run simulation or solver'
+      : cspSolution.satisfied
+        ? '✅ FEASIBLE SOLUTION FOUND'
+        : '⚠ NO SOLUTION';
+
+  const statItems = useMemo(
+    () => [
+      { label: 'Variables', value: '4', color: 'text-blue-400' },
+      {
+        label: 'Domains',
+        value: `${victims.length} values`,
+        color: 'text-amber-400',
+      },
+      { label: 'Constraints', value: '6', color: 'text-red-400' },
+      {
+        label: 'Backtracks',
+        value: cspSolution != null ? String(cspSolution.backtracks) : '—',
+        color: 'text-purple-400',
+      },
+    ],
+    [cspSolution, victims.length]
+  );
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -78,16 +223,13 @@ export default function CspSolver() {
       <div className="shrink-0 bg-[#0f172a] border-b border-[#1e293b] px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-[#94a3b8] font-semibold">CSP STATUS:</span>
-          <span className="text-[9px] font-semibold px-2.5 py-0.5 rounded-full bg-green-500/20 text-green-400 badge-glow-green">✅ FEASIBLE SOLUTION FOUND</span>
+          <span className="text-[9px] font-semibold px-2.5 py-0.5 rounded-full bg-green-500/20 text-green-400 badge-glow-green">
+            {statusBadgeText}
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
-          {[
-            { label: 'Variables', value: '4', color: 'text-blue-400' },
-            { label: 'Domains', value: '5 values', color: 'text-amber-400' },
-            { label: 'Constraints', value: '6', color: 'text-red-400' },
-            { label: 'Backtracks', value: '4', color: 'text-purple-400' },
-          ].map((stat) => (
+          {statItems.map((stat) => (
             <div key={stat.label} className="flex items-center gap-1.5 bg-[#020817] border border-[#1e293b] rounded-lg px-2.5 py-1">
               <span className="text-[9px] text-[#64748b]">{stat.label}:</span>
               <span className={`text-[10px] font-bold ${stat.color}`}>{stat.value}</span>
@@ -96,7 +238,11 @@ export default function CspSolver() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#3b82f6] text-[#f1f5f9] text-[10px] glow-blue hover:bg-[#2563eb] transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={() => onRunCsp()}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#3b82f6] text-[#f1f5f9] text-[10px] glow-blue hover:bg-[#2563eb] transition-colors cursor-pointer"
+          >
             <Play className="w-3.5 h-3.5" /> Run Solver
           </button>
           <button className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#334155] text-[#94a3b8] text-[10px] hover:bg-[#1e293b] transition-colors cursor-pointer">
@@ -120,28 +266,49 @@ export default function CspSolver() {
 
             <SectionLabel color="text-purple-400">Variables</SectionLabel>
             <div className="space-y-2 mb-4">
-              {cspVariables.map((v) => (
+              {(cspSolution?.variables ?? []).map((v) => {
+                const domainStr =
+                  v.id === 'kits'
+                    ? v.domain.join(', ')
+                    : victims.map((vic) => vic.id).join(', ');
+                const currentStr =
+                  v.current.length > 0 ? v.current.join(', ') : '—';
+                return (
                 <div key={v.id} className="bg-[#020817] rounded-lg p-3 border border-[#1e293b]">
                   <div className="flex items-center gap-1.5 mb-1">
                     <span className="text-[12px]">{v.icon}</span>
                     <span className="text-[11px] font-semibold text-[#f1f5f9]">{v.label}</span>
                   </div>
                   <div className="text-[10px] text-[#94a3b8] space-y-0.5 ml-5">
-                    <div>Domain: <span className="text-[#f1f5f9] font-mono-display">{v.domain}</span></div>
+                    <div>Domain: <span className="text-[#f1f5f9] font-mono-display">{domainStr}</span></div>
                     <div>{v.maxInfo}</div>
-                    <div>Current: <span className="text-[#f1f5f9] font-mono-display">{v.current}</span> <span className="text-green-400">✅</span></div>
+                    <div>
+                      Current: <span className="text-[#f1f5f9] font-mono-display">{currentStr}</span>{' '}
+                      <span
+                        className="text-green-400"
+                        style={v.satisfied ? undefined : { color: '#f87171' }}
+                      >
+                        {v.satisfied ? '✅' : '❌'}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <SectionLabel>Constraints</SectionLabel>
             <div className="space-y-1 mb-4">
-              {cspConstraints.map((c) => (
+              {(cspSolution?.constraints ?? []).map((c) => (
                 <div key={c.id} className="flex items-center gap-2 bg-[#020817] rounded-lg px-3 py-1.5 border border-[#1e293b]">
                   <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#3b82f6]/20 text-blue-400 font-mono-display">{c.id}</span>
                   <span className="text-[10px] text-[#cbd5e1] font-mono-display flex-1">{c.formula}</span>
-                  <span className="text-[9px] font-semibold text-green-400">✅ SATISFIED</span>
+                  <span
+                    className="text-[9px] font-semibold text-green-400"
+                    style={c.satisfied ? undefined : { color: '#f87171' }}
+                  >
+                    {c.satisfied ? '✅ SATISFIED' : '❌ VIOLATED'}
+                  </span>
                 </div>
               ))}
             </div>
@@ -172,7 +339,7 @@ export default function CspSolver() {
 
             <div className="bg-[#020817] rounded-lg border border-[#1e293b] p-3 overflow-x-auto">
               <svg width="600" height="420" viewBox="0 0 600 420">
-                <TreeNode nodeId="start" nodes={cspTreeNodes} x={300} y={24} />
+                <TreeNode nodeId="start" nodes={flatTree} x={300} y={24} />
               </svg>
             </div>
           </div>
@@ -180,20 +347,26 @@ export default function CspSolver() {
           <div>
             <SectionLabel>Assignment Timeline</SectionLabel>
             <div className="flex items-center gap-1 flex-wrap">
-              {[
-                { step: 1, label: 'Amb1←V1', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
-                { step: 2, label: 'Amb1←V3', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
-                { step: 3, label: 'Amb2←V2', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
-                { step: 4, label: 'Amb2←V4', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
-                { step: 5, label: 'Team←V5', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
-              ].map((item, i) => (
-                <div key={item.step} className="flex items-center gap-1">
-                  <span className={`text-[9px] font-semibold px-2 py-1 rounded-lg border ${item.color}`}>
-                    {String.fromCharCode(0x2460 + i)} {item.label}
+              {validTimelineSteps.map((item, i) => {
+                const color =
+                  item.variable === 'Amb1'
+                    ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                    : item.variable === 'Amb2'
+                      ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                      : 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+                const vid = item.value[item.value.length - 1] ?? '';
+                const label = `${item.variable}←${vid}`;
+                return (
+                <div key={`${item.variable}-${vid}-${i}`} className="flex items-center gap-1">
+                  <span className={`text-[9px] font-semibold px-2 py-1 rounded-lg border ${color}`}>
+                    {String.fromCharCode(0x2460 + i)} {label}
                   </span>
-                  {i < 4 && <span className="text-[#64748b] text-[9px]">→</span>}
+                  {i < validTimelineSteps.length - 1 && (
+                    <span className="text-[#64748b] text-[9px]">→</span>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -204,35 +377,56 @@ export default function CspSolver() {
                 <span className="text-[13px]">🚑</span>
                 <div>
                   <span className="text-[11px] font-semibold text-[#f1f5f9]">Ambulance 1</span>
-                  <span className="text-[10px] text-[#94a3b8]"> → V1 (Critical) 🔴</span>
+                  <span className="text-[10px] text-[#94a3b8]">{amb1Lines.first}</span>
                   <br />
-                  <span className="text-[10px] text-[#94a3b8] ml-6">V3 (Moderate) 🟡</span>
+                  <span className="text-[10px] text-[#94a3b8] ml-6">{amb1Lines.second}</span>
                 </div>
               </div>
               <div className="flex items-start gap-2">
                 <span className="text-[13px]">🚑</span>
                 <div>
                   <span className="text-[11px] font-semibold text-[#f1f5f9]">Ambulance 2</span>
-                  <span className="text-[10px] text-[#94a3b8]"> → V2 (Critical) 🔴</span>
+                  <span className="text-[10px] text-[#94a3b8]">{amb2Lines.first}</span>
                   <br />
-                  <span className="text-[10px] text-[#94a3b8] ml-6">V4 (Moderate) 🟡</span>
+                  <span className="text-[10px] text-[#94a3b8] ml-6">{amb2Lines.second}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[13px]">👷</span>
                 <span className="text-[11px] font-semibold text-[#f1f5f9]">Rescue Team</span>
-                <span className="text-[10px] text-[#94a3b8]"> → V5 (Minor) 🟢</span>
+                <span className="text-[10px] text-[#94a3b8]">
+                  {cspSolution?.teamVictim
+                    ? (() => {
+                        const sev =
+                          victims.find((v) => v.id === cspSolution.teamVictim)
+                            ?.severity ?? 'minor';
+                        return ` → ${cspSolution.teamVictim} (${severityLabel(sev)}) ${severityEmoji(sev)}`;
+                      })()
+                    : ' → —'}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[13px]">🧰</span>
                 <span className="text-[11px] font-semibold text-[#f1f5f9]">Kits Used</span>
-                <span className="text-[10px] text-[#94a3b8]"> → 4 / 10</span>
+                <span className="text-[10px] text-[#94a3b8]">
+                  {' → '}
+                  {cspSolution?.kitsUsed ?? 0} / 10
+                </span>
               </div>
             </div>
             <div className="mt-2 text-[10px] text-green-400 space-y-0.5">
-              <div>All 6 constraints satisfied ✅</div>
+              <div>
+                {cspSolution?.satisfied
+                  ? 'All 6 constraints satisfied ✅'
+                  : 'Some constraints not satisfied — see matrix'}
+              </div>
               <div>Critical victims prioritized by MRV heuristic ✅</div>
-              <div>Resource utilization: 100% ambulances, 100% team ✅</div>
+              <div>
+                Resource utilization:{' '}
+                {(cspSolution?.amb1Victims.length ?? 0) > 0 ? '100%' : '0%'} ambulances,{' '}
+                {(cspSolution?.amb2Victims.length ?? 0) > 0 ? '100%' : '0%'} ambulance 2,{' '}
+                {cspSolution?.teamVictim ? '100%' : '0%'} team ✅
+              </div>
             </div>
           </div>
         </div>
@@ -254,7 +448,7 @@ export default function CspSolver() {
                 </tr>
               </thead>
               <tbody>
-                {cspPerfData.map((row) => (
+                {(cspSolution?.perfComparison ?? []).map((row) => (
                   <tr key={row.method} className={`border-t border-[#1e293b] ${row.best ? 'bg-green-500/10 border-l-2 border-l-green-500' : ''}`}>
                     <td className="py-1.5 font-semibold text-[#f1f5f9]">
                       {row.method} {row.best && <span className="ml-1 text-[8px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full">SELECTED ⭐</span>}
@@ -268,7 +462,9 @@ export default function CspSolver() {
               </tbody>
             </table>
             <div className="mt-2 text-[10px] text-green-400 font-semibold">
-              🎯 83% fewer backtracks with MRV + Forward Checking
+              {backtrackImprovementPct != null
+                ? `🎯 ${backtrackImprovementPct}% fewer backtracks with MRV + Forward Checking`
+                : '—'}
             </div>
           </div>
 
@@ -284,8 +480,8 @@ export default function CspSolver() {
                 </tr>
               </thead>
               <tbody>
-                {cspConstraintMatrix.map((row, i) => (
-                  <tr key={i} className="border-t border-[#1e293b]">
+                {constraintMatrix.map((row, i) => (
+                  <tr key={`c-row-${i}`} className="border-t border-[#1e293b]">
                     <td className="py-1 font-semibold text-blue-400 font-mono-display">C{i + 1}</td>
                     {row.map((satisfied, j) => (
                       <td key={j} className="py-1 text-center">
@@ -297,8 +493,15 @@ export default function CspSolver() {
               </tbody>
             </table>
             <div className="mt-2 space-y-0.5">
-              <div className="text-[10px] text-green-400 font-semibold">Solution Quality: OPTIMAL</div>
-              <div className="text-[10px] text-[#94a3b8]">All hard constraints satisfied with zero violations</div>
+              <div className="text-[10px] text-green-400 font-semibold">
+                Solution Quality:{' '}
+                {cspSolution?.satisfied ? 'OPTIMAL' : 'INFEASIBLE / PARTIAL'}
+              </div>
+              <div className="text-[10px] text-[#94a3b8]">
+                {cspSolution?.satisfied
+                  ? 'All hard constraints satisfied with zero violations'
+                  : 'One or more hard constraints failed — review matrix'}
+              </div>
             </div>
           </div>
         </div>

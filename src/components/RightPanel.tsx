@@ -1,10 +1,18 @@
+import { useMemo } from 'react';
 import { X } from 'lucide-react';
-import { victims, decisionLog, kpis } from '../data/placeholder';
+import type { SimulationActions } from '../engine/simulationEngine';
+import type { KPI, LogEntryType, SimulationState, Victim, VictimStatus } from '../types';
+import {
+  buildPriorityReasoning,
+  formatSeverityUpper,
+  severityAccentClass,
+} from '../utils/priorityReasoning';
+import { downloadRunSnapshot } from '../utils/exportRun';
 
 function SectionLabel({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between mb-2 mt-1">
-      <div className="text-[10px] font-semibold tracking-[0.15em] text-[#3b82f6] uppercase">
+    <div className="flex items-center justify-between mb-1 mt-0.5">
+      <div className="text-[9px] font-semibold tracking-[0.12em] text-[#3b82f6] uppercase">
         {children}
       </div>
       {action}
@@ -12,16 +20,17 @@ function SectionLabel({ children, action }: { children: React.ReactNode; action?
   );
 }
 
-function SeverityBadge({ severity }: { severity: string }) {
-  const config: Record<string, { bg: string; text: string; glow: string; dot: string }> = {
-    Critical: { bg: 'bg-red-500/20', text: 'text-red-400', glow: 'badge-glow-red', dot: '🔴' },
-    Moderate: { bg: 'bg-amber-500/20', text: 'text-amber-400', glow: 'badge-glow-amber', dot: '🟡' },
-    Minor: { bg: 'bg-green-500/20', text: 'text-green-400', glow: 'badge-glow-green', dot: '🟢' },
+function SeverityBadge({ severity, compact }: { severity: string; compact?: boolean }) {
+  const config: Record<string, { bg: string; text: string; glow: string; dot: string; short: string }> = {
+    Critical: { bg: 'bg-red-500/20', text: 'text-red-400', glow: 'badge-glow-red', dot: '🔴', short: 'Crit' },
+    Moderate: { bg: 'bg-amber-500/20', text: 'text-amber-400', glow: 'badge-glow-amber', dot: '🟡', short: 'Mod' },
+    Minor: { bg: 'bg-green-500/20', text: 'text-green-400', glow: 'badge-glow-green', dot: '🟢', short: 'Min' },
   };
   const c = config[severity] || config.Minor;
+  const label = compact ? c.short : severity;
   return (
-    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${c.bg} ${c.text} ${c.glow} whitespace-nowrap`}>
-      {c.dot} {severity}
+    <span className={`text-[8px] font-semibold px-1 py-0.5 rounded-full ${c.bg} ${c.text} ${c.glow} whitespace-nowrap`}>
+      {compact ? label : `${c.dot} ${severity}`}
     </span>
   );
 }
@@ -31,10 +40,11 @@ function StatusBadge({ status }: { status: string }) {
     'En Route': { bg: 'bg-blue-500/20', text: 'text-blue-400' },
     'Waiting': { bg: 'bg-amber-500/20', text: 'text-amber-400' },
     'Active': { bg: 'bg-green-500/20', text: 'text-green-400' },
+    'Lost': { bg: 'bg-red-500/20', text: 'text-red-400' },
   };
   const c = config[status] || config.Waiting;
   return (
-    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${c.bg} ${c.text} whitespace-nowrap`}>
+    <span className={`text-[8px] font-medium px-1 py-0.5 rounded-full ${c.bg} ${c.text} whitespace-nowrap`}>
       {status}
     </span>
   );
@@ -43,55 +53,112 @@ function StatusBadge({ status }: { status: string }) {
 function SurvivalBar({ pct }: { pct: number }) {
   const color = pct >= 80 ? 'bg-green-500' : pct >= 60 ? 'bg-amber-500' : 'bg-red-500';
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="w-10 h-1.5 bg-[#1e293b] rounded-full overflow-hidden">
+    <div className="flex items-center gap-1">
+      <div className="w-7 h-1 bg-[#1e293b] rounded-full overflow-hidden">
         <div className={`h-full ${color} rounded-full`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-[9px] text-[#94a3b8]">{pct}%</span>
+      <span className="text-[8px] text-[#94a3b8] tabular-nums">{pct}%</span>
     </div>
   );
 }
 
-function KPICard({ kpi }: { kpi: typeof kpis[0] }) {
-  const colorMap = {
+function KPICard({ kpi }: { kpi: KPI }) {
+  const colorMap: Record<
+    KPI['color'],
+    { border: string; glow: string; value: string }
+  > = {
     green: { border: 'border-green-500/30', glow: 'glow-green', value: 'text-green-400' },
     amber: { border: 'border-amber-500/30', glow: 'glow-amber', value: 'text-amber-400' },
     red: { border: 'border-red-500/30', glow: 'glow-red', value: 'text-red-400' },
+    blue: { border: 'border-blue-500/30', glow: 'glow-blue', value: 'text-blue-400' },
+    purple: { border: 'border-purple-500/30', glow: 'glow-purple', value: 'text-purple-400' },
   };
   const c = colorMap[kpi.color];
   return (
-    <div className={`card-glass p-2.5 ${c.border} ${c.glow} flex flex-col items-center text-center`}>
-      <div className="flex items-center gap-1 mb-1">
-        <span className="text-[11px]">{kpi.icon}</span>
+    <div className={`card-glass p-1.5 ${c.border} ${c.glow} flex flex-col items-center text-center`}>
+      <div className="flex items-center gap-0.5 mb-0.5">
+        <span className="text-[10px]">{kpi.icon}</span>
       </div>
-      <div className={`text-[15px] font-bold ${c.value}`}>{kpi.value}</div>
-      <div className="text-[9px] text-[#94a3b8] mt-0.5 leading-tight">{kpi.label}</div>
+      <div className={`text-[12px] font-bold leading-none ${c.value}`}>{kpi.value}</div>
+      <div className="text-[7px] text-[#94a3b8] mt-0.5 leading-tight px-0.5">{kpi.label}</div>
     </div>
   );
 }
 
-const logColorMap = {
+const logColorMap: Record<LogEntryType, string> = {
   normal: 'text-[#4ade80]',
   replan: 'text-[#f59e0b]',
   event: 'text-[#ef4444]',
   success: 'text-[#4ade80]',
+  info: 'text-[#38bdf8]',
 };
 
-export default function RightPanel() {
+function victimStatusUi(s: VictimStatus): string {
+  switch (s) {
+    case 'waiting':
+      return 'Waiting';
+    case 'en-route':
+      return 'En Route';
+    case 'rescued':
+      return 'Active';
+    case 'lost':
+      return 'Lost';
+    default: {
+      const _e: never = s;
+      return _e;
+    }
+  }
+}
+
+function severityUi(sev: Victim['severity']): string {
+  if (sev === 'critical') return 'Critical';
+  if (sev === 'moderate') return 'Moderate';
+  return 'Minor';
+}
+
+function formatVictimEta(eta: Victim['eta']): string {
+  if (eta === null) return '—';
+  return `${eta}m`;
+}
+
+interface RightPanelProps {
+  state: SimulationState;
+  actions: SimulationActions;
+}
+
+function mlRiskShort(id: string, estimates: SimulationState['victimMlEstimates']): string {
+  const e = estimates[id];
+  if (!e) return '—';
+  const tag = ['L', 'M', 'H'][e.predictedClass];
+  return `${tag} ${e.survivalEstimatePct}%`;
+}
+
+export default function RightPanel({ state, actions }: RightPanelProps) {
+  const { victims, decisionLog, kpis, victimMlEstimates } = state;
+  const priorityReasoning = useMemo(() => buildPriorityReasoning(state), [
+    state.victims,
+    state.cspSolution,
+    state.objectivePriority,
+    state.fuzzyLogicEnabled,
+    state.victimMlEstimates,
+  ]);
+  const lastLogIndex = decisionLog.length > 0 ? decisionLog.length - 1 : -1;
+
   return (
-    <div className="w-[300px] shrink-0 bg-[#0f172a] border-l border-[#1e293b] overflow-y-auto p-4 space-y-4">
+    <div className="w-[248px] shrink-0 h-full min-h-0 min-w-0 flex flex-col bg-[#0f172a] border-l border-[#1e293b] p-2 gap-2">
       {/* Victim Status Table */}
-      <div>
-        <SectionLabel>Victim Status</SectionLabel>
-        <table className="w-full text-[10px]">
+      <div className="shrink-0 min-w-0">
+        <SectionLabel>Victims</SectionLabel>
+        <table className="w-full text-[9px] table-fixed">
           <thead>
-            <tr className="text-[#64748b] text-[9px] uppercase tracking-wider">
-              <th className="text-left py-1 font-medium">ID</th>
-              <th className="text-left py-1 font-medium">Sev</th>
-              <th className="text-left py-1 font-medium">Status</th>
-              <th className="text-left py-1 font-medium">Asgn</th>
-              <th className="text-left py-1 font-medium">Surv</th>
-              <th className="text-left py-1 font-medium">ETA</th>
+            <tr className="text-[#64748b] text-[8px] uppercase tracking-wide">
+              <th className="text-left py-0.5 font-medium w-[28px]">ID</th>
+              <th className="text-left py-0.5 font-medium">Sev</th>
+              <th className="text-left py-0.5 font-medium w-[56px]">Status</th>
+              <th className="text-left py-0.5 font-medium w-[32px]">Asgn</th>
+              <th className="text-left py-0.5 font-medium">Surv</th>
+              <th className="text-left py-0.5 font-medium w-[32px]">ML</th>
+              <th className="text-left py-0.5 font-medium w-[26px]">ETA</th>
             </tr>
           </thead>
           <tbody>
@@ -100,12 +167,13 @@ export default function RightPanel() {
                 key={v.id}
                 className={`border-t border-[#1e293b] ${i % 2 === 0 ? 'bg-[#0f172a]' : 'bg-[#0a0f1e]'}`}
               >
-                <td className="py-1 font-semibold text-[#f1f5f9]">{v.id}</td>
-                <td className="py-1"><SeverityBadge severity={v.severity} /></td>
-                <td className="py-1"><StatusBadge status={v.status} /></td>
-                <td className="py-1 text-[#94a3b8]">{v.assigned}</td>
-                <td className="py-1"><SurvivalBar pct={v.survivalPct} /></td>
-                <td className="py-1 text-[#94a3b8] font-mono-display">{v.eta}</td>
+                <td className="py-0.5 font-semibold text-[#f1f5f9]">{v.id}</td>
+                <td className="py-0.5"><SeverityBadge compact severity={severityUi(v.severity)} /></td>
+                <td className="py-0.5"><StatusBadge status={victimStatusUi(v.status)} /></td>
+                <td className="py-0.5 text-[#94a3b8] truncate text-[8px]">{v.assignedTo ?? '—'}</td>
+                <td className="py-0.5"><SurvivalBar pct={v.survivalPct} /></td>
+                <td className="py-0.5 text-[#94a3b8] font-mono-display text-[8px]">{mlRiskShort(v.id, victimMlEstimates)}</td>
+                <td className="py-0.5 text-[#94a3b8] font-mono-display text-[8px]">{formatVictimEta(v.eta)}</td>
               </tr>
             ))}
           </tbody>
@@ -113,48 +181,85 @@ export default function RightPanel() {
       </div>
 
       {/* Priority Reasoning */}
-      <div className="card-glass p-3 border-glow-left-purple">
-        <SectionLabel>Priority Reasoning</SectionLabel>
-        <div className="text-[10px] text-[#cbd5e1] leading-relaxed space-y-1.5">
-          <p>
-            <span className="text-red-400 font-semibold">V1</span> selected first — <span className="text-red-400">CRITICAL</span> severity
-          </p>
-          <p className="text-[#94a3b8]">
-            Survival drops below 50% threshold in ~6 min without intervention. <span className="text-amber-400">V2</span> queued next.
-          </p>
-          <div className="border-t border-[#1e293b] pt-1.5 mt-1.5">
+      <div className="shrink-0 card-glass p-2 rounded-md border-glow-left-purple min-w-0">
+        <SectionLabel>Priority</SectionLabel>
+        <div className="text-[9px] text-[#cbd5e1] leading-snug space-y-1">
+          {priorityReasoning.hasQueue && priorityReasoning.primary ? (
+            <p>
+              <span className={`font-semibold ${severityAccentClass(priorityReasoning.primary.severity)}`}>
+                {priorityReasoning.primary.id}
+              </span>{' '}
+              first —{' '}
+              <span className={severityAccentClass(priorityReasoning.primary.severity)}>
+                {formatSeverityUpper(priorityReasoning.primary.severity)}
+              </span>
+              . <span className="text-[#94a3b8]">{priorityReasoning.primary.reason}</span>
+            </p>
+          ) : (
             <p className="text-[#94a3b8]">
-              Objective active: <span className="text-[#f1f5f9]">Victim Prioritization</span>
+              No victims in <span className="text-[#f1f5f9]">waiting</span> /{' '}
+              <span className="text-[#f1f5f9]">en-route</span>.
+            </p>
+          )}
+          {priorityReasoning.secondary ? (
+            <p className="text-[#94a3b8]">{priorityReasoning.secondary}</p>
+          ) : priorityReasoning.hasQueue ? (
+            <p className="text-[#94a3b8]">No further queued victims.</p>
+          ) : null}
+          <div className="border-t border-[#1e293b] pt-1 mt-1 space-y-0.5">
+            <p className="text-[#94a3b8]">
+              Route: <span className="text-[#f1f5f9]">{priorityReasoning.objectiveTitle}</span>
             </p>
             <p className="text-[#94a3b8]">
-              Trade-off: <span className="text-amber-400">V4 (Moderate)</span> delayed by ~8 min
+              Trade-off: <span className="text-[#f1f5f9]">{priorityReasoning.tradeoffLine}</span>
             </p>
+            <p className="text-[#64748b] text-[8px] leading-snug">{priorityReasoning.fuzzyNote}</p>
           </div>
         </div>
       </div>
 
-      {/* Decision Log */}
-      <div>
-        <SectionLabel action={
-          <button className="text-[9px] text-[#64748b] hover:text-[#f1f5f9] transition-colors flex items-center gap-1 cursor-pointer">
-            <X className="w-3 h-3" /> Clear
-          </button>
-        }>
-          Decision Log
+      {/* Decision Log — fills remaining height */}
+      <div className="flex-1 min-h-0 flex flex-col gap-1 min-w-0">
+        <SectionLabel
+          action={
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => downloadRunSnapshot(state)}
+                className="text-[8px] text-[#64748b] hover:text-[#f1f5f9] transition-colors cursor-pointer"
+              >
+                Export
+              </button>
+              <button
+                type="button"
+                onClick={actions.clearLog}
+                className="text-[8px] text-[#64748b] hover:text-[#f1f5f9] transition-colors flex items-center gap-0.5 cursor-pointer"
+              >
+                <X className="w-2.5 h-2.5" /> Clear
+              </button>
+            </div>
+          }
+        >
+          Log
         </SectionLabel>
-        <div className="bg-[#020817] rounded-lg border border-[#1e293b] p-3 h-[180px] overflow-y-auto font-mono-display text-[10px] space-y-1 leading-relaxed">
+        <div className="flex-1 min-h-[64px] overflow-y-auto overscroll-contain bg-[#020817] rounded-md border border-[#1e293b] p-2 font-mono-display text-[9px] space-y-0.5 leading-snug">
           {decisionLog.map((entry, i) => (
-            <div key={i} className={`${logColorMap[entry.type]} ${i === 7 ? 'border-l-2 border-[#3b82f6] pl-2 bg-[#1e293b]/30' : ''}`}>
-              <span className="text-[#64748b]">[{entry.time}]</span> {entry.text}
+            <div
+              key={entry.id}
+              className={`${logColorMap[entry.type]} ${
+                i === lastLogIndex ? 'border-l-2 border-[#3b82f6] pl-1.5 bg-[#1e293b]/30' : ''
+              }`}
+            >
+              <span className="text-[#64748b]">[{entry.timestamp}]</span> {entry.text}
             </div>
           ))}
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div>
-        <SectionLabel>Performance KPIs</SectionLabel>
-        <div className="grid grid-cols-3 gap-2">
+      <div className="shrink-0 min-w-0 pt-0.5">
+        <SectionLabel>KPIs</SectionLabel>
+        <div className="grid grid-cols-3 gap-1">
           {kpis.map((kpi) => (
             <KPICard key={kpi.label} kpi={kpi} />
           ))}

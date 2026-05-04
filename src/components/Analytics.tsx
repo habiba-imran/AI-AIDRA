@@ -1,4 +1,13 @@
+import { useMemo } from 'react';
 import { CheckCircle, AlertTriangle, AlertCircle, Trophy, Zap, Shield, Scale } from 'lucide-react';
+import type { SimulationState } from '../types';
+import {
+  liveAlgoBarGroups,
+  liveCspPerfGroups,
+  liveMlBarGroups,
+  liveScenarioRow,
+  pathOptimalityScore,
+} from '../utils/analyticsLive';
 import { algoComparisons, cspPerfData, modelEvals, scenarioRows, tradeoffData } from '../data/placeholder';
 
 function SectionLabel({ children, color = 'text-[#3b82f6]' }: { children: React.ReactNode; color?: string }) {
@@ -213,7 +222,153 @@ function colorForOptimality(o: number) {
   return 'text-red-400';
 }
 
-export default function Analytics() {
+function formatOptimalityCell(s: { id: string; optimality: number }) {
+  if (s.id === 'Live' && s.optimality < 0) return '—';
+  return s.optimality.toFixed(2);
+}
+
+function optimalityCellClass(s: { id: string; optimality: number }) {
+  if (s.id === 'Live' && s.optimality < 0) return 'text-[#94a3b8]';
+  return colorForOptimality(s.optimality);
+}
+
+const CSP_STATIC_CARDS = [
+  { icon: '❌', label: 'No Heuristic', backtracks: 23, time: 89, desc: 'Brute force search. Explores invalid assignments repeatedly.', color: 'red' as const },
+  { icon: '🟡', label: 'MRV Only', backtracks: 11, time: 34, desc: '52% improvement. Assigns most constrained variable first.', color: 'amber' as const },
+  { icon: '✅', label: 'MRV + Forward Checking', backtracks: 4, time: 12, desc: '83% improvement ⭐. Prunes domains early, eliminates dead ends. SELECTED for AIDRA system.', color: 'green' as const },
+];
+
+interface AnalyticsProps {
+  state: SimulationState;
+}
+
+export default function Analytics({ state }: AnalyticsProps) {
+  const algoGroups = useMemo(
+    () =>
+      state.allAlgoComparisons.length > 0
+        ? liveAlgoBarGroups(state.allAlgoComparisons)
+        : algoComparisons.map((a) => ({ label: a.algo, values: [a.nodesExpanded, a.pathCost] })),
+    [state.allAlgoComparisons]
+  );
+
+  const cspChartGroups = useMemo(
+    () =>
+      state.cspSolution?.perfComparison?.length
+        ? liveCspPerfGroups(state.cspSolution.perfComparison)
+        : cspPerfData.map((d) => ({ label: d.method, values: [d.backtracks, d.timeMs] })),
+    [state.cspSolution]
+  );
+
+  const cspDetailCards = useMemo(() => {
+    const p = state.cspSolution?.perfComparison;
+    if (!p?.length) return CSP_STATIC_CARDS;
+    const icons: string[] = ['❌', '🟡', '✅'];
+    const colors: Array<'red' | 'amber' | 'green'> = ['red', 'amber', 'green'];
+    const descs = [
+      'Baseline CSP search without variable ordering heuristics.',
+      'Most constrained variable first reduces backtracking.',
+      'Forward checking + MRV — solver used for live CSP in AIDRA.',
+    ];
+    return p.map((row, i) => ({
+      icon: icons[i] ?? '•',
+      label: row.method,
+      backtracks: row.backtracks,
+      time: Math.round(row.timeMs * 100) / 100,
+      desc: descs[i] ?? '',
+      color: colors[Math.min(i, 2)] ?? 'amber',
+    }));
+  }, [state.cspSolution]);
+
+  const mlBarGroups = useMemo(
+    () =>
+      state.mlEvalSnapshot
+        ? liveMlBarGroups(state.mlEvalSnapshot)
+        : modelEvals.map((m) => ({
+            label: m.model,
+            values: [
+              m.accuracy,
+              Math.round(
+                (m.classes.reduce((s, c) => s + c.precision, 0) / m.classes.length) * 100
+              ),
+              Math.round((m.classes.reduce((s, c) => s + c.recall, 0) / m.classes.length) * 100),
+              Math.round((m.classes.reduce((s, c) => s + c.f1, 0) / m.classes.length) * 100),
+            ],
+          })),
+    [state.mlEvalSnapshot]
+  );
+
+  const scenarioTableRows = useMemo(() => {
+    if (state.allAlgoComparisons.length === 0) return scenarioRows;
+    return [liveScenarioRow(state), ...scenarioRows];
+  }, [state]);
+
+  const keyFindingItems = useMemo(() => {
+    const base = [
+      {
+        icon: CheckCircle,
+        color: 'text-green-400',
+        text: 'A* achieved optimal path with 70% fewer node expansions than BFS',
+      },
+      {
+        icon: CheckCircle,
+        color: 'text-green-400',
+        text: 'DFS fastest (8ms) but produced suboptimal path — 50% higher cost than A*',
+      },
+      {
+        icon: AlertTriangle,
+        color: 'text-amber-400',
+        text: 'Greedy Best-First fast but risk-unaware — routed through fire zone in 3/4 test runs',
+      },
+      {
+        icon: CheckCircle,
+        color: 'text-green-400',
+        text: 'A* with risk-weighted heuristic reduced risk exposure score by 80%',
+      },
+      {
+        icon: AlertCircle,
+        color: 'text-blue-400',
+        text: 'Recommendation: A* for all routing tasks in AIDRA system',
+      },
+    ];
+    if (state.allAlgoComparisons.length === 0) return base;
+    const positive = state.allAlgoComparisons.filter((c) => c.pathCost > 0);
+    const best = positive.length ? Math.min(...positive.map((c) => c.pathCost)) : null;
+    const sel = state.allAlgoComparisons.find((c) => c.algo === state.searchAlgorithm);
+    const algoLabel = state.searchAlgorithm === 'Astar' ? 'A*' : state.searchAlgorithm;
+    base[0] = {
+      icon: CheckCircle,
+      color: 'text-green-400',
+      text: `Live grid: ${algoLabel} path cost ${sel?.pathCost ?? '—'}; lowest cost among compared algorithms: ${best ?? '—'} (same objective & fuzzy settings as simulator).`,
+    };
+    return base;
+  }, [state]);
+
+  const recommendedBlurb = useMemo(() => {
+    if (state.allAlgoComparisons.length === 0) {
+      return (
+        <>
+          A* Search + Fuzzy Logic Uncertainty + MLP Risk Estimation<br />
+          → 5/5 Victims Saved | Risk Score: 38 | Optimality: 0.94 | All constraints satisfied
+        </>
+      );
+    }
+    const algo = state.searchAlgorithm === 'Astar' ? 'A*' : state.searchAlgorithm;
+    const fuzzy = state.fuzzyLogicEnabled ? 'Fuzzy' : 'Crisp costs';
+    const ml = state.mlModel === 'NaiveBayes' ? 'NB' : state.mlModel;
+    const saved = state.victims.filter((v) => v.status === 'rescued').length;
+    const total = state.victims.length;
+    const opt = pathOptimalityScore(state.allAlgoComparisons, state.searchAlgorithm);
+    const optStr = opt === null ? '—' : opt.toFixed(2);
+    const risk = Math.round(state.riskExposureScore);
+    return (
+      <>
+        {algo} Search + {fuzzy} + {ml} risk model (ML Studio selection)<br />
+        → Victims {saved}/{total} | Risk: {risk} pts | Path optimality (vs peers): {optStr} | Replans:{' '}
+        {state.replanCount}
+      </>
+    );
+  }, [state]);
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-4">
       {/* Section 1: Search Algorithm Analysis */}
@@ -223,7 +378,7 @@ export default function Analytics() {
           <div className="w-[35%]">
             <div className="text-[10px] text-[#f1f5f9] font-semibold mb-1">Nodes Expanded vs Path Cost</div>
             <GroupedBarChart
-              groups={algoComparisons.map((a) => ({ label: a.algo, values: [a.nodesExpanded, a.pathCost] }))}
+              groups={algoGroups}
               bars={[{ label: 'Nodes', color: '#3b82f6' }, { label: 'Cost', color: '#22c55e' }]}
               width={420} height={220}
             />
@@ -258,13 +413,7 @@ export default function Analytics() {
           <div className="w-[35%] card-glass p-3 border-glow-left-purple">
             <SectionLabel color="text-purple-400">Key Findings</SectionLabel>
             <div className="space-y-2 text-[10px]">
-              {[
-                { icon: CheckCircle, color: 'text-green-400', text: 'A* achieved optimal path with 70% fewer node expansions than BFS' },
-                { icon: CheckCircle, color: 'text-green-400', text: 'DFS fastest (8ms) but produced suboptimal path — 50% higher cost than A*' },
-                { icon: AlertTriangle, color: 'text-amber-400', text: 'Greedy Best-First fast but risk-unaware — routed through fire zone in 3/4 test runs' },
-                { icon: CheckCircle, color: 'text-green-400', text: 'A* with risk-weighted heuristic reduced risk exposure score by 80%' },
-                { icon: AlertCircle, color: 'text-blue-400', text: 'Recommendation: A* for all routing tasks in AIDRA system' },
-              ].map((item, i) => (
+              {keyFindingItems.map((item, i) => (
                 <div key={i} className="flex items-start gap-1.5">
                   <item.icon className={`w-3.5 h-3.5 ${item.color} shrink-0 mt-0.5`} />
                   <span className="text-[#cbd5e1]">{item.text}</span>
@@ -282,7 +431,7 @@ export default function Analytics() {
           <div className="w-[50%]">
             <div className="text-[10px] text-[#f1f5f9] font-semibold mb-1">Backtracks & Time: With vs Without Heuristics</div>
             <GroupedBarChart
-              groups={cspPerfData.map((d) => ({ label: d.method, values: [d.backtracks, d.timeMs] }))}
+              groups={cspChartGroups}
               bars={[{ label: 'Backtracks', color: '#ef4444' }, { label: 'Time (ms)', color: '#3b82f6' }]}
               width={560} height={200}
             />
@@ -292,11 +441,7 @@ export default function Analytics() {
             </div>
           </div>
           <div className="w-[50%] space-y-2">
-            {[
-              { icon: '❌', label: 'No Heuristic', backtracks: 23, time: 89, desc: 'Brute force search. Explores invalid assignments repeatedly.', color: 'red' },
-              { icon: '🟡', label: 'MRV Only', backtracks: 11, time: 34, desc: '52% improvement. Assigns most constrained variable first.', color: 'amber' },
-              { icon: '✅', label: 'MRV + Forward Checking', backtracks: 4, time: 12, desc: '83% improvement ⭐. Prunes domains early, eliminates dead ends. SELECTED for AIDRA system.', color: 'green' },
-            ].map((item) => {
+            {cspDetailCards.map((item) => {
               const borderClass = item.color === 'red' ? 'border-glow-left-red' : item.color === 'amber' ? 'border-glow-left-amber' : 'border-glow-left-green';
               return (
                 <div key={item.label} className={`bg-[#020817] rounded-lg p-2.5 border border-[#1e293b] ${borderClass}`}>
@@ -306,7 +451,11 @@ export default function Analytics() {
                   </div>
                   <div className="text-[9px] text-[#94a3b8]">
                     <span className="font-mono-display">{item.backtracks} backtracks</span> | <span className="font-mono-display">{item.time}ms</span>
-                    {item.color !== 'red' && <span className={`ml-1 ${item.color === 'green' ? 'text-green-400' : 'text-amber-400'}`}>{item.color === 'green' ? '83% improvement ⭐' : '52% improvement'}</span>}
+                    {item.color !== 'red' && (
+                      <span className={`ml-1 ${item.color === 'green' ? 'text-green-400' : 'text-amber-400'}`}>
+                        {item.color === 'green' ? '83% improvement ⭐' : '52% improvement'}
+                      </span>
+                    )}
                   </div>
                   <div className="text-[9px] text-[#64748b] mt-0.5">{item.desc}</div>
                 </div>
@@ -358,10 +507,7 @@ export default function Analytics() {
           <div className="w-[50%]">
             <div className="text-[10px] text-[#f1f5f9] font-semibold mb-1">Accuracy | Precision | Recall | F1 per Model</div>
             <GroupedBarChart
-              groups={modelEvals.map((m) => ({
-                label: m.model,
-                values: [m.accuracy, Math.round(m.classes.reduce((s, c) => s + c.precision, 0) / m.classes.length * 100), Math.round(m.classes.reduce((s, c) => s + c.recall, 0) / m.classes.length * 100), Math.round(m.classes.reduce((s, c) => s + c.f1, 0) / m.classes.length * 100)],
-              }))}
+              groups={mlBarGroups}
               bars={[
                 { label: 'Accuracy', color: '#3b82f6' },
                 { label: 'Precision', color: '#22c55e' },
@@ -380,7 +526,14 @@ export default function Analytics() {
             </div>
           </div>
           <div className="w-[50%]">
-            <div className="text-[10px] text-[#f1f5f9] font-semibold mb-1">ROC Curves (simulated)</div>
+            <div className="text-[10px] text-[#f1f5f9] font-semibold mb-1">
+              ROC Curves (simulated)
+              {state.mlEvalSnapshot ? (
+                <span className="block text-[8px] text-[#64748b] font-normal mt-0.5">
+                  Bar chart above uses live ML Studio evaluation; ROC remains illustrative.
+                </span>
+              ) : null}
+            </div>
             <RocChart width={560} height={200} />
           </div>
         </div>
@@ -405,7 +558,7 @@ export default function Analytics() {
               </tr>
             </thead>
             <tbody>
-              {scenarioRows.map((s) => (
+              {scenarioTableRows.map((s) => (
                 <tr key={s.id} className={`border-t border-[#1e293b] ${s.best ? 'bg-amber-500/10 border-l-2 border-l-amber-500' : ''}`}>
                   <td className="py-1.5 font-bold text-[#f1f5f9]">{s.id}</td>
                   <td className="py-1.5 text-[#cbd5e1]">{s.algorithm}</td>
@@ -413,7 +566,7 @@ export default function Analytics() {
                   <td className={`py-1.5 text-center font-semibold ${colorForVictims(s.victimsSaved)}`}>{s.victimsSaved}</td>
                   <td className="py-1.5 text-center text-[#f1f5f9] font-mono-display">{s.avgTime}</td>
                   <td className={`py-1.5 text-center font-semibold ${colorForRisk(s.riskScore)}`}>{s.riskScore}</td>
-                  <td className={`py-1.5 text-center font-mono-display font-semibold ${colorForOptimality(s.optimality)}`}>{s.optimality.toFixed(2)}</td>
+                  <td className={`py-1.5 text-center font-mono-display font-semibold ${optimalityCellClass(s)}`}>{formatOptimalityCell(s)}</td>
                   <td className="py-1.5 text-center text-[#cbd5e1]">{s.replanEvents}</td>
                 </tr>
               ))}
@@ -422,7 +575,7 @@ export default function Analytics() {
         </div>
 
         <div className="grid grid-cols-4 gap-3 mb-3">
-          {scenarioRows.map((s) => {
+          {scenarioTableRows.map((s) => {
             const outcomeBg = s.outcomeColor === 'green' ? 'bg-green-500/20 text-green-400 badge-glow-green' : s.outcomeColor === 'amber' ? 'bg-amber-500/20 text-amber-400 badge-glow-amber' : 'bg-red-500/20 text-red-400 badge-glow-red';
             return (
               <div key={s.id} className="card-glass p-2.5">
@@ -432,7 +585,7 @@ export default function Analytics() {
                 </div>
                 <div className="text-[9px] text-[#94a3b8] space-y-0.5 mb-1.5">
                   <div>Victims: <span className={colorForVictims(s.victimsSaved)}>{s.victimsSaved}</span> | Time: <span className="text-[#f1f5f9]">{s.avgTime}</span></div>
-                  <div>Risk: <span className={colorForRisk(s.riskScore)}>{s.riskScore}</span> | Opt: <span className={colorForOptimality(s.optimality)}>{s.optimality.toFixed(2)}</span></div>
+                  <div>Risk: <span className={colorForRisk(s.riskScore)}>{s.riskScore}</span> | Opt: <span className={optimalityCellClass(s)}>{formatOptimalityCell(s)}</span></div>
                 </div>
                 <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full ${outcomeBg}`}>{s.outcome}</span>
               </div>
@@ -445,10 +598,7 @@ export default function Analytics() {
             <Trophy className="w-5 h-5 text-amber-400" />
             <span className="text-[12px] font-bold text-amber-300">RECOMMENDED CONFIGURATION</span>
           </div>
-          <div className="text-[10px] text-amber-200/90 leading-relaxed">
-            A* Search + Fuzzy Logic Uncertainty + MLP Risk Estimation<br />
-            → 5/5 Victims Saved | Risk Score: 38 | Optimality: 0.94 | All constraints satisfied
-          </div>
+          <div className="text-[10px] text-amber-200/90 leading-relaxed">{recommendedBlurb}</div>
         </div>
       </div>
     </div>
