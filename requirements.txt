@@ -1,0 +1,47 @@
+# System & Runtime Requirements
+# This is a Node.js/React project, not Python
+
+## Node.js & NPM
+Node.js >= 18.0.0
+npm >= 9.0.0
+
+## For Local Development
+- Git (for version control)
+- A modern code editor (VS Code recommended)
+
+## Frontend Dependencies (see package.json)
+React ^18.3.1
+React DOM ^18.3.1
+Supabase JS ^2.57.4
+Lucide React ^0.344.0
+Vite ^5.4.2
+TypeScript ^5.5.3
+Tailwind CSS ^3.4.1
+
+## Build & Deployment
+Netlify (for hosting)
+npm (for build: `npm run build`)
+
+## Installation Steps
+1. Install Node.js from https://nodejs.org/ (LTS version recommended)
+2. Clone repository
+3. Run: npm install
+4. Run: npm run build
+5. Deploy the `dist` folder to Netlify
+
+## For Netlify Deployment
+- Netlify account (https://app.netlify.com)
+- Git repository (GitHub, GitLab, or Bitbucket)
+- No additional system dependencies needed (Netlify handles everything)
+
+## Development Scripts Available
+- npm run dev      - Start development server
+- npm run build    - Build for production
+- npm run lint     - Check code quality
+- npm run test     - Run tests
+- npm run preview  - Preview production build locally
+
+## Notes
+- All npm dependencies are listed in package.json
+- Lock file (package-lock.json) ensures reproducible builds
+- Netlify automatically installs dependencies during deployment
