@@ -56,3 +56,10 @@ Run from this directory (`AI-AIDRA/`), not the parent `AI FINAL` folder (the par
 ## Stack
 
 React 18, TypeScript, Vite, Tailwind CSS, Lucide icons.
+
+## Deploying to Netlify
+
+- Build command: `npm run build`
+- Publish directory: `dist`
+- For single-page app routing, a `_redirects` file is included and `netlify.toml` config is present to redirect all requests to `index.html`.
+- To deploy: push your repository to Git and connect the repo in Netlify, or drag & drop the site folder. Set the build command and publish directory if Netlify does not auto-detect them.
