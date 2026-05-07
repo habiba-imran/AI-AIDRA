@@ -46,10 +46,10 @@ type SimAction =
   | { type: 'SET_ML_MODEL'; payload: MLModel }
   | { type: 'SET_OBJECTIVE'; payload: ObjectivePriority }
   | { type: 'TOGGLE_FUZZY' }
-  | { type: 'TRIGGER_AFTERSHOCK' }
-  | { type: 'BLOCK_RANDOM_ROAD' }
-  | { type: 'ADD_NEW_VICTIM' }
-  | { type: 'SPREAD_FIRE' }
+  | { type: 'TRIGGER_AFTERSHOCK'; payload: { row: number; col: number } }
+  | { type: 'BLOCK_ROAD_AT'; payload: { row: number; col: number } }
+  | { type: 'ADD_VICTIM_AT'; payload: { row: number; col: number } }
+  | { type: 'SPREAD_FIRE_FROM'; payload: { row: number; col: number } }
   | { type: 'APPLY_REPLAN' }
   | { type: 'CLEAR_LOG' }
   | { type: 'DISMISS_TOAST'; payload: string }
@@ -220,14 +220,7 @@ function runSearchPlanningPatch(
   algo: SearchAlgorithm
 ): Pick<
   SimulationState,
-  | 'searchResults'
-  | 'localSearchResult'
-  | 'allAlgoComparisons'
-  | 'currentRouteAmb1'
-  | 'currentRouteAmb2'
-  | 'currentRouteTeam'
-  | 'ambulances'
-  | 'fuzzySnapshot'
+  'searchResults' | 'localSearchResult' | 'allAlgoComparisons' | 'fuzzySnapshot'
 > {
   const grid = state.grid;
   const fuzzyEval = evaluateFuzzyRouting(state);
@@ -257,30 +250,17 @@ function runSearchPlanningPatch(
     state.objectivePriority,
     fuzzyRiskStep
   );
-  const finalPath = localRes.path.length > 0 ? localRes.path : pathForLocal;
-  const ambulances = state.ambulances.map(cloneAmbulance);
-  if (ambulances[0]) {
-    ambulances[0] = {
-      ...ambulances[0],
-      route: finalPath.map((p) => ({ ...p })),
-    };
-  }
   const allAlgoComparisons = runAllAlgorithms(
     grid,
     state.objectivePriority,
     fuzzyRiskStep,
     fuzzyHeuristic
   );
-  const routeCopy = finalPath.map((p) => ({ ...p }));
 
   return {
     searchResults: searchResult,
     localSearchResult: localRes,
     allAlgoComparisons,
-    currentRouteAmb1: routeCopy,
-    currentRouteAmb2: [],
-    currentRouteTeam: [],
-    ambulances,
     fuzzySnapshot,
   };
 }
@@ -451,53 +431,113 @@ function buildVictimsForCspWithOptionalMl(state: SimulationState): {
   return { victimsForCsp, victimMlEstimates, mlLogText, fuzzyLogText };
 }
 
+function etaForAmbList(
+  state: SimulationState,
+  victimId: string,
+  orderedIds: string[],
+  amb: Ambulance,
+  byId: Map<string, Victim>
+): number | null {
+  const idx = orderedIds.indexOf(victimId);
+  if (idx < 0) return null;
+  if (idx === 0) {
+    return amb.route.length > 1 ? amb.route.length - 1 : null;
+  }
+  const v0 = byId.get(orderedIds[0]);
+  if (!v0) return null;
+  let total = amb.route.length > 1 ? amb.route.length - 1 : 0;
+  let prev = v0;
+  for (let j = 1; j <= idx; j++) {
+    const cur = byId.get(orderedIds[j]);
+    if (!cur) return null;
+    const leg = planRoute(state, prev.row, prev.col, cur.row, cur.col);
+    total += leg.length > 1 ? leg.length - 1 : 0;
+    prev = cur;
+  }
+  return total > 0 ? total : null;
+}
+
 function applyCspSolution(state: SimulationState): SimulationState {
   const { victimsForCsp, victimMlEstimates, mlLogText, fuzzyLogText } =
     buildVictimsForCspWithOptionalMl(state);
   const solution = solveCsp(victimsForCsp);
 
-  const updatedAmbs = state.ambulances.map((amb) => {
-    if (amb.id === 'Amb1') {
-      return {
-        ...amb,
-        assignedVictims: solution.amb1Victims,
-        status:
-          solution.amb1Victims.length > 0 ? ('en-route' as const) : ('idle' as const),
-      };
-    }
-    if (amb.id === 'Amb2') {
-      return {
-        ...amb,
-        assignedVictims: solution.amb2Victims,
-        status:
-          solution.amb2Victims.length > 0 ? ('en-route' as const) : ('idle' as const),
-      };
-    }
-    return amb;
-  });
-
-  const updatedVictims = state.victims.map((v) => {
+  const assignedVictims = state.victims.map((v) => {
     if (v.status === 'rescued' || v.status === 'lost') {
       return v;
     }
     let next: Victim;
     if (solution.amb1Victims.includes(v.id)) {
-      next = { ...v, assignedTo: 'Amb1', status: 'en-route' as const };
+      next = { ...v, assignedTo: 'Amb1', status: 'en-route' as const, eta: null };
     } else if (solution.amb2Victims.includes(v.id)) {
-      next = { ...v, assignedTo: 'Amb2', status: 'en-route' as const };
+      next = { ...v, assignedTo: 'Amb2', status: 'en-route' as const, eta: null };
     } else if (solution.teamVictim === v.id) {
-      next = { ...v, assignedTo: 'Team', status: 'en-route' as const };
+      next = { ...v, assignedTo: 'Team', status: 'en-route' as const, eta: null };
     } else {
-      next = { ...v, assignedTo: null, status: 'waiting' as const };
+      next = { ...v, assignedTo: null, status: 'waiting' as const, eta: null };
     }
     return { ...next, priorityScore: v.priorityScore };
   });
 
+  const victimsById = new Map(assignedVictims.map((v) => [v.id, v] as const));
+
+  const updatedAmbs = state.ambulances.map((amb) => {
+    const assigned = amb.id === 'Amb1' ? solution.amb1Victims : solution.amb2Victims;
+    const firstTarget = assigned[0] ? victimsById.get(assigned[0]) : null;
+    const route =
+      firstTarget != null
+        ? planRoute(state, amb.currentRow, amb.currentCol, firstTarget.row, firstTarget.col)
+        : [];
+    return {
+      ...amb,
+      assignedVictims: assigned,
+      route,
+      eta: route.length > 1 ? route.length - 1 : null,
+      status: assigned.length > 0 ? ('en-route' as const) : ('idle' as const),
+    };
+  });
+
+  const amb1 = updatedAmbs.find((a) => a.id === 'Amb1')!;
+  const amb2 = updatedAmbs.find((a) => a.id === 'Amb2')!;
+
+  const teamTarget = solution.teamVictim ? victimsById.get(solution.teamVictim) : null;
+  const teamRoute =
+    teamTarget != null
+      ? planRoute(
+          state,
+          state.rescueTeam.currentRow,
+          state.rescueTeam.currentCol,
+          teamTarget.row,
+          teamTarget.col
+        )
+      : [];
   const updatedTeam: RescueTeam = {
     ...state.rescueTeam,
     assignedVictim: solution.teamVictim,
+    route: teamRoute,
+    eta: teamRoute.length > 1 ? teamRoute.length - 1 : null,
     status: solution.teamVictim ? ('en-route' as const) : ('idle' as const),
   };
+
+  const updatedVictims = assignedVictims.map((v) => {
+    if (v.status === 'rescued' || v.status === 'lost') return v;
+    if (v.status === 'waiting' || v.assignedTo == null) {
+      return { ...v, eta: null };
+    }
+    if (v.assignedTo === 'Amb1') {
+      const eta = etaForAmbList(state, v.id, solution.amb1Victims, amb1, victimsById);
+      return { ...v, eta };
+    }
+    if (v.assignedTo === 'Amb2') {
+      const eta = etaForAmbList(state, v.id, solution.amb2Victims, amb2, victimsById);
+      return { ...v, eta };
+    }
+    if (v.assignedTo === 'Team') {
+      const eta = updatedTeam.route.length > 1 ? updatedTeam.route.length - 1 : null;
+      return { ...v, eta };
+    }
+    return v;
+  });
 
   const logLines: DecisionLogEntry[] = [];
   if (fuzzyLogText) {
@@ -532,6 +572,9 @@ function applyCspSolution(state: SimulationState): SimulationState {
     ambulances: updatedAmbs,
     victims: updatedVictims,
     rescueTeam: updatedTeam,
+    currentRouteAmb1: updatedAmbs.find((a) => a.id === 'Amb1')?.route ?? [],
+    currentRouteAmb2: updatedAmbs.find((a) => a.id === 'Amb2')?.route ?? [],
+    currentRouteTeam: updatedTeam.route,
     victimMlEstimates,
     decisionLog: [...state.decisionLog, ...logLines],
   });
@@ -542,6 +585,7 @@ function buildInitialState(): SimulationState {
   const victims = generateInitialVictims().map(cloneVictim);
   const ambulances = generateInitialAmbulances().map(cloneAmbulance);
   const rescueTeam = cloneTeam(generateInitialRescueTeam());
+  const mlEvalSnapshot = runFullMlEvaluation();
 
   const base: SimulationState = {
     running: false,
@@ -573,7 +617,7 @@ function buildInitialState(): SimulationState {
     currentRouteAmb2: [],
     currentRouteTeam: [],
     cspSolution: null,
-    mlEvalSnapshot: null,
+    mlEvalSnapshot,
     victimMlEstimates: {},
     fuzzySnapshot: null,
   };
@@ -614,6 +658,89 @@ function inBounds(row: number, col: number): boolean {
   return row >= 0 && row < 18 && col >= 0 && col < 18;
 }
 
+function advancePositionOnRoute(
+  currentRow: number,
+  currentCol: number,
+  route: Array<{ row: number; col: number }>
+): { row: number; col: number } {
+  if (route.length === 0) return { row: currentRow, col: currentCol };
+  const idx = route.findIndex((p) => p.row === currentRow && p.col === currentCol);
+  if (idx === -1) return route[0];
+  if (idx >= route.length - 1) return route[idx];
+  return route[idx + 1];
+}
+
+function advanceResourcesOneStep(state: SimulationState): Pick<SimulationState, 'ambulances' | 'rescueTeam'> {
+  const ambulances = state.ambulances.map((amb) => {
+    if (amb.status === 'idle') return amb;
+    const next = advancePositionOnRoute(amb.currentRow, amb.currentCol, amb.route);
+    return { ...amb, currentRow: next.row, currentCol: next.col };
+  });
+  const rescueTeam =
+    state.rescueTeam.status === 'idle'
+      ? state.rescueTeam
+      : (() => {
+          const next = advancePositionOnRoute(
+            state.rescueTeam.currentRow,
+            state.rescueTeam.currentCol,
+            state.rescueTeam.route
+          );
+          return {
+            ...state.rescueTeam,
+            currentRow: next.row,
+            currentCol: next.col,
+          };
+        })();
+  return { ambulances, rescueTeam };
+}
+
+function fallbackRoute(
+  startRow: number,
+  startCol: number,
+  goalRow: number,
+  goalCol: number
+): Array<{ row: number; col: number }> {
+  const path: Array<{ row: number; col: number }> = [{ row: startRow, col: startCol }];
+  let r = startRow;
+  let c = startCol;
+  while (r !== goalRow) {
+    r += goalRow > r ? 1 : -1;
+    path.push({ row: r, col: c });
+  }
+  while (c !== goalCol) {
+    c += goalCol > c ? 1 : -1;
+    path.push({ row: r, col: c });
+  }
+  return path;
+}
+
+function planRoute(
+  state: SimulationState,
+  startRow: number,
+  startCol: number,
+  goalRow: number,
+  goalCol: number
+): Array<{ row: number; col: number }> {
+  const fuzzyEval = state.fuzzyLogicEnabled
+    ? (state.fuzzySnapshot ?? evaluateFuzzyRouting(state))
+    : null;
+  const result = runSearch(
+    state.searchAlgorithm,
+    state.grid,
+    startRow,
+    startCol,
+    goalRow,
+    goalCol,
+    state.objectivePriority,
+    fuzzyEval ? fuzzyEval.riskStepMultiplier : 1,
+    fuzzyEval ? fuzzyEval.heuristicRiskWeight : 1
+  );
+  if (result.found && result.path.length > 0) {
+    return result.path.map((p) => ({ ...p }));
+  }
+  return fallbackRoute(startRow, startCol, goalRow, goalCol);
+}
+
 function victimOccupiedCells(victims: Victim[]): Set<string> {
   const s = new Set<string>();
   for (const v of victims) {
@@ -630,6 +757,31 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
       return recomputeDerived(action.payload);
 
     case 'START': {
+      if (state.running && state.paused) {
+        const logEntry: DecisionLogEntry = {
+          id: generateId(),
+          timestamp: formatTime(state.elapsedSeconds),
+          text: 'Simulation resumed',
+          type: 'success',
+        };
+        const toast: Toast = {
+          id: generateId(),
+          type: 'success',
+          message: 'Simulation resumed',
+          timestamp: Date.now(),
+        };
+        return recomputeDerived({
+          ...state,
+          paused: false,
+          decisionLog: [...state.decisionLog, logEntry],
+          toasts: [...state.toasts, toast],
+        });
+      }
+
+      if (state.running && !state.paused) {
+        return state;
+      }
+
       const elapsedSeconds = state.elapsedSeconds;
       const logEntry: DecisionLogEntry = {
         id: generateId(),
@@ -721,36 +873,29 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
 
     case 'TRIGGER_AFTERSHOCK': {
       const grid = cloneGrid(state.grid);
-      const candidates: Array<{ row: number; col: number }> = [];
-      for (let r = 0; r < 18; r++) {
-        for (let c = 0; c < 18; c++) {
-          const cell = grid[r][c];
-          if (isPassablePlainRoad(cell)) {
-            candidates.push({ row: r, col: c });
-          }
-        }
-      }
-      const picks = pickRandomIndices(candidates, 2, rng);
-      for (const idx of picks) {
-        const p = candidates[idx];
-        grid[p.row][p.col] = {
-          ...grid[p.row][p.col],
-          type: 'fire',
-          risk: 0.85,
-          passable: true,
-          onFire: true,
+      const { row, col } = action.payload;
+      if (!inBounds(row, col)) return state;
+      const target = grid[row][col];
+      if (!isPassablePlainRoad(target)) {
+        const invalidToast: Toast = {
+          id: generateId(),
+          type: 'warning',
+          message: 'Aftershock target must be a passable road cell',
+          timestamp: Date.now(),
         };
+        return recomputeDerived({ ...state, toasts: [...state.toasts, invalidToast] });
       }
+      grid[row][col] = { ...target, type: 'fire', risk: 0.85, passable: true, onFire: true };
       const logEntry: DecisionLogEntry = {
         id: generateId(),
         timestamp: formatTime(state.elapsedSeconds),
-        text: '💥 Aftershock triggered — 2 new fire zones created',
+        text: `💥 Aftershock triggered at (${row},${col})`,
         type: 'event',
       };
       const toast: Toast = {
         id: generateId(),
         type: 'danger',
-        message: '💥 Aftershock detected — replanning required',
+        message: `💥 Aftershock detected at (${row},${col})`,
         timestamp: Date.now(),
       };
       return applyCspSolution(
@@ -766,23 +911,21 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
       );
     }
 
-    case 'BLOCK_RANDOM_ROAD': {
+    case 'BLOCK_ROAD_AT': {
       const grid = cloneGrid(state.grid);
-      const candidates: Array<{ row: number; col: number }> = [];
-      for (let r = 0; r < 18; r++) {
-        for (let c = 0; c < 18; c++) {
-          if (isPassablePlainRoad(grid[r][c])) {
-            candidates.push({ row: r, col: c });
-          }
-        }
+      const { row, col } = action.payload;
+      if (!inBounds(row, col)) return state;
+      if (!isPassablePlainRoad(grid[row][col])) {
+        const invalidToast: Toast = {
+          id: generateId(),
+          type: 'warning',
+          message: 'Blocked road target must be a passable road cell',
+          timestamp: Date.now(),
+        };
+        return recomputeDerived({ ...state, toasts: [...state.toasts, invalidToast] });
       }
-      if (candidates.length === 0) {
-        return state;
-      }
-      const idx = Math.floor(rng() * candidates.length);
-      const p = candidates[idx];
-      grid[p.row][p.col] = {
-        ...grid[p.row][p.col],
+      grid[row][col] = {
+        ...grid[row][col],
         type: 'blocked',
         risk: 0.0,
         passable: false,
@@ -791,13 +934,13 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
       const logEntry: DecisionLogEntry = {
         id: generateId(),
         timestamp: formatTime(state.elapsedSeconds),
-        text: `⚠ Road blocked at (${p.row},${p.col}) — replanning...`,
+        text: `⚠ Road blocked at (${row},${col}) — replanning...`,
         type: 'replan',
       };
       const toast: Toast = {
         id: generateId(),
         type: 'warning',
-        message: `⚠ Road blocked at (${p.row},${p.col})`,
+        message: `⚠ Road blocked at (${row},${col})`,
         timestamp: Date.now(),
       };
       return applyCspSolution(
@@ -813,22 +956,21 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
       );
     }
 
-    case 'ADD_NEW_VICTIM': {
+    case 'ADD_VICTIM_AT': {
+      const { row, col } = action.payload;
+      if (!inBounds(row, col)) return state;
       const occupied = victimOccupiedCells(state.victims);
-      const candidates: Array<{ row: number; col: number }> = [];
-      for (let r = 0; r < 18; r++) {
-        for (let c = 0; c < 18; c++) {
-          const cell = state.grid[r][c];
-          const key = `${r}-${c}`;
-          if (isPassableRoadCell(cell) && !occupied.has(key)) {
-            candidates.push({ row: r, col: c });
-          }
-        }
+      const cell = state.grid[row][col];
+      const key = `${row}-${col}`;
+      if (!isPassableRoadCell(cell) || occupied.has(key)) {
+        const invalidToast: Toast = {
+          id: generateId(),
+          type: 'warning',
+          message: 'Victim target must be an empty passable road cell',
+          timestamp: Date.now(),
+        };
+        return recomputeDerived({ ...state, toasts: [...state.toasts, invalidToast] });
       }
-      if (candidates.length === 0) {
-        return state;
-      }
-      const pick = candidates[Math.floor(rng() * candidates.length)];
       const severities: Array<'critical' | 'moderate' | 'minor'> = [
         'critical',
         'moderate',
@@ -839,8 +981,8 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
       const id = `V${state.nextVictimSeq}`;
       const newVictim: Victim = {
         id,
-        row: pick.row,
-        col: pick.col,
+        row,
+        col,
         severity,
         status: 'waiting',
         assignedTo: null,
@@ -851,13 +993,13 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
       const logEntry: DecisionLogEntry = {
         id: generateId(),
         timestamp: formatTime(state.elapsedSeconds),
-        text: `🆕 New victim detected at (${pick.row},${pick.col}) — severity: ${severity}`,
+        text: `🆕 New victim detected at (${row},${col}) — severity: ${severity}`,
         type: 'event',
       };
       const toast: Toast = {
         id: generateId(),
         type: 'warning',
-        message: '🆕 New victim added — reallocation needed',
+        message: `🆕 New victim added at (${row},${col})`,
         timestamp: Date.now(),
       };
       const replanBump = state.running && !state.paused ? 1 : 0;
@@ -875,57 +1017,59 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
       );
     }
 
-    case 'SPREAD_FIRE': {
+    case 'SPREAD_FIRE_FROM': {
       const grid = cloneGrid(state.grid);
-      const firePositions: Array<{ row: number; col: number }> = [];
-      for (let r = 0; r < 18; r++) {
-        for (let c = 0; c < 18; c++) {
-          if (grid[r][c].type === 'fire') {
-            firePositions.push({ row: r, col: c });
-          }
-        }
-      }
-      let n = 0;
-      for (const fp of firePositions) {
-        const roadNeighbors: Array<{ row: number; col: number }> = [];
-        for (const nb of neighbors4(fp.row, fp.col)) {
-          if (!inBounds(nb.row, nb.col)) continue;
-          const cell = grid[nb.row][nb.col];
-          if (cell.type === 'road') {
-            roadNeighbors.push(nb);
-          }
-        }
-        if (roadNeighbors.length === 0) continue;
-        const chosen =
-          roadNeighbors[Math.floor(rng() * roadNeighbors.length)];
-        grid[chosen.row][chosen.col] = {
-          ...grid[chosen.row][chosen.col],
-          type: 'fire',
-          risk: 0.85,
-          passable: true,
-          onFire: true,
+      const { row, col } = action.payload;
+      if (!inBounds(row, col)) return state;
+      if (grid[row][col].type !== 'fire') {
+        const invalidToast: Toast = {
+          id: generateId(),
+          type: 'warning',
+          message: 'Spread source must be an existing fire cell',
+          timestamp: Date.now(),
         };
-        n += 1;
+        return recomputeDerived({ ...state, toasts: [...state.toasts, invalidToast] });
       }
+      const roadNeighbors: Array<{ row: number; col: number }> = [];
+      for (const nb of neighbors4(row, col)) {
+        if (!inBounds(nb.row, nb.col)) continue;
+        const cell = grid[nb.row][nb.col];
+        if (cell.type === 'road') {
+          roadNeighbors.push(nb);
+        }
+      }
+      if (roadNeighbors.length === 0) {
+        const noSpreadLog: DecisionLogEntry = {
+          id: generateId(),
+          timestamp: formatTime(state.elapsedSeconds),
+          text: `🔥 Fire spread from (${row},${col}) — no adjacent road cell`,
+          type: 'event',
+        };
+        return recomputeDerived({
+          ...state,
+          decisionLog: [...state.decisionLog, noSpreadLog],
+        });
+      }
+      const chosen = roadNeighbors[Math.floor(rng() * roadNeighbors.length)];
+      grid[chosen.row][chosen.col] = {
+        ...grid[chosen.row][chosen.col],
+        type: 'fire',
+        risk: 0.85,
+        passable: true,
+        onFire: true,
+      };
       const logEntry: DecisionLogEntry = {
         id: generateId(),
         timestamp: formatTime(state.elapsedSeconds),
-        text: `🔥 Fire spreading — ${n} new cells affected`,
+        text: `🔥 Fire spread from (${row},${col}) to (${chosen.row},${chosen.col})`,
         type: 'event',
       };
       const toast: Toast = {
         id: generateId(),
         type: 'danger',
-        message: '🔥 Fire zone expanding',
+        message: `🔥 Fire expanded to (${chosen.row},${chosen.col})`,
         timestamp: Date.now(),
       };
-      if (n === 0) {
-        return recomputeDerived({
-          ...state,
-          decisionLog: [...state.decisionLog, logEntry],
-          toasts: [...state.toasts, toast],
-        });
-      }
       if (!state.running) {
         return recomputeDerived({
           ...state,
@@ -973,9 +1117,10 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
           : `⚙ Route — ${searchAlgoLabel(state.searchAlgorithm)} (no path found)`,
         type: 'normal',
       };
-      return recomputeDerived({
+      const merged = recomputeDerived({
         ...state,
         ...planning,
+        replanCount: state.replanCount + 1,
         decisionLog: [
           ...state.decisionLog,
           logEntry,
@@ -984,6 +1129,10 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
         ],
         toasts: [...state.toasts, toast],
       });
+      if (!state.running) {
+        return merged;
+      }
+      return applyCspSolution(merged);
     }
 
     case 'RUN_SEARCH_WITH_ALGO': {
@@ -1028,8 +1177,11 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
     case 'TICK': {
       let victims = state.victims.map(cloneVictim);
       const newToasts: Toast[] = [];
+      const tickLogs: DecisionLogEntry[] = [];
       victims = victims.map((v) => {
-        if (v.status !== 'waiting') return v;
+        if (v.status === 'rescued' || v.status === 'lost') return v;
+        const waitingOrTransit = v.status === 'waiting' || v.status === 'en-route';
+        if (!waitingOrTransit) return v;
         let decay = 0.15;
         if (v.severity === 'critical') decay = 0.3;
         else if (v.severity === 'minor') decay = 0.05;
@@ -1050,10 +1202,123 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
         return { ...v, survivalPct: nextSurvival };
       });
 
+      const moved = advanceResourcesOneStep(state);
+      let ambulances = moved.ambulances.map(cloneAmbulance);
+      let rescueTeam = cloneTeam(moved.rescueTeam);
+      const victimById = new Map(victims.map((v) => [v.id, v] as const));
+
+      for (let i = 0; i < ambulances.length; i++) {
+        const amb = ambulances[i];
+        if (amb.status === 'en-route' && amb.assignedVictims.length > 0) {
+          const targetId = amb.assignedVictims[0];
+          const target = victimById.get(targetId);
+          if (
+            target &&
+            target.status !== 'rescued' &&
+            target.status !== 'lost' &&
+            amb.currentRow === target.row &&
+            amb.currentCol === target.col
+          ) {
+            target.status = 'rescued';
+            target.assignedTo = amb.id;
+            target.eta = 0;
+            newToasts.push({
+              id: generateId(),
+              type: 'success',
+              message: `✅ ${target.id} rescued by ${amb.id}`,
+              timestamp: Date.now(),
+            });
+            tickLogs.push({
+              id: generateId(),
+              timestamp: formatTime(state.elapsedSeconds),
+              text: `✅ ${target.id} rescued by ${amb.id}`,
+              type: 'success',
+            });
+
+            const remaining = amb.assignedVictims.slice(1);
+            if (remaining.length > 0) {
+              const nextVictim = victimById.get(remaining[0]);
+              const nextRoute =
+                nextVictim != null
+                  ? planRoute(state, amb.currentRow, amb.currentCol, nextVictim.row, nextVictim.col)
+                  : [];
+              ambulances[i] = {
+                ...amb,
+                assignedVictims: remaining,
+                route: nextRoute,
+                eta: nextRoute.length > 1 ? nextRoute.length - 1 : null,
+                status: 'en-route',
+              };
+            } else {
+              const dest = amb.id === 'Amb1' ? { row: 0, col: 17 } : { row: 17, col: 17 };
+              const returnRoute = planRoute(state, amb.currentRow, amb.currentCol, dest.row, dest.col);
+              ambulances[i] = {
+                ...amb,
+                assignedVictims: [],
+                route: returnRoute,
+                eta: returnRoute.length > 1 ? returnRoute.length - 1 : null,
+                status: 'returning',
+              };
+            }
+          }
+        } else if (amb.status === 'returning') {
+          const atAmb1Mc = amb.id === 'Amb1' && amb.currentRow === 0 && amb.currentCol === 17;
+          const atAmb2Mc = amb.id === 'Amb2' && amb.currentRow === 17 && amb.currentCol === 17;
+          if (atAmb1Mc || atAmb2Mc) {
+            ambulances[i] = {
+              ...amb,
+              status: 'idle',
+              route: [],
+              eta: null,
+            };
+          }
+        }
+      }
+
+      if (rescueTeam.status === 'en-route' && rescueTeam.assignedVictim != null) {
+        const target = victimById.get(rescueTeam.assignedVictim);
+        if (
+          target &&
+          target.status !== 'rescued' &&
+          target.status !== 'lost' &&
+          rescueTeam.currentRow === target.row &&
+          rescueTeam.currentCol === target.col
+        ) {
+          target.status = 'rescued';
+          target.assignedTo = 'Team';
+          target.eta = 0;
+          newToasts.push({
+            id: generateId(),
+            type: 'success',
+            message: `✅ ${target.id} rescued by Team`,
+            timestamp: Date.now(),
+          });
+          tickLogs.push({
+            id: generateId(),
+            timestamp: formatTime(state.elapsedSeconds),
+            text: `✅ ${target.id} rescued by Team`,
+            type: 'success',
+          });
+          rescueTeam = {
+            ...rescueTeam,
+            assignedVictim: null,
+            status: 'idle',
+            route: [],
+            eta: null,
+          };
+        }
+      }
+
       const next: SimulationState = {
         ...state,
         elapsedSeconds: state.elapsedSeconds + 1,
         victims,
+        ambulances,
+        rescueTeam,
+        currentRouteAmb1: ambulances.find((a) => a.id === 'Amb1')?.route ?? [],
+        currentRouteAmb2: ambulances.find((a) => a.id === 'Amb2')?.route ?? [],
+        currentRouteTeam: rescueTeam.route,
+        decisionLog: [...state.decisionLog, ...tickLogs],
         toasts: [...state.toasts, ...newToasts],
       };
       return recomputeDerived(next);
@@ -1097,17 +1362,17 @@ export function useSimulation(): {
   const toggleFuzzyLogic = useCallback(() => {
     dispatch({ type: 'TOGGLE_FUZZY' });
   }, []);
-  const triggerAfterShock = useCallback(() => {
-    dispatch({ type: 'TRIGGER_AFTERSHOCK' });
+  const triggerAfterShock = useCallback((row: number, col: number) => {
+    dispatch({ type: 'TRIGGER_AFTERSHOCK', payload: { row, col } });
   }, []);
-  const blockRandomRoad = useCallback(() => {
-    dispatch({ type: 'BLOCK_RANDOM_ROAD' });
+  const blockRoadAt = useCallback((row: number, col: number) => {
+    dispatch({ type: 'BLOCK_ROAD_AT', payload: { row, col } });
   }, []);
-  const addNewVictim = useCallback(() => {
-    dispatch({ type: 'ADD_NEW_VICTIM' });
+  const addVictimAt = useCallback((row: number, col: number) => {
+    dispatch({ type: 'ADD_VICTIM_AT', payload: { row, col } });
   }, []);
-  const spreadFireZone = useCallback(() => {
-    dispatch({ type: 'SPREAD_FIRE' });
+  const spreadFireFrom = useCallback((row: number, col: number) => {
+    dispatch({ type: 'SPREAD_FIRE_FROM', payload: { row, col } });
   }, []);
   const applyAndReplan = useCallback(() => {
     dispatch({ type: 'APPLY_REPLAN' });
@@ -1143,9 +1408,9 @@ export function useSimulation(): {
       setObjectivePriority,
       toggleFuzzyLogic,
       triggerAfterShock,
-      blockRandomRoad,
-      addNewVictim,
-      spreadFireZone,
+      blockRoadAt,
+      addVictimAt,
+      spreadFireFrom,
       applyAndReplan,
       clearLog,
       dismissToast,
@@ -1165,9 +1430,9 @@ export function useSimulation(): {
       setObjectivePriority,
       toggleFuzzyLogic,
       triggerAfterShock,
-      blockRandomRoad,
-      addNewVictim,
-      spreadFireZone,
+      blockRoadAt,
+      addVictimAt,
+      spreadFireFrom,
       applyAndReplan,
       clearLog,
       dismissToast,

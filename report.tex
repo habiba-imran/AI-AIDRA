@@ -1,0 +1,645 @@
+% Adaptive Intelligent Disaster Response Agent (AIDRA) - IEEE Conference LaTeX
+% Save this file as report.tex and compile with pdflatex / latexmk in Overleaf.
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{times}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{balance}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{siunitx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{microtype}
+
+% Slight compression to help meet 6-page limit
+\setlength{\textfloatsep}{7pt}
+\setlength{\floatsep}{7pt}
+\setlength{\intextsep}{7pt}
+\renewcommand{\baselinestretch}{0.98}
+
+\begin{document}
+
+\title{Adaptive Intelligent Disaster Response Agent (AIDRA):\\
+A Hybrid System for Dynamic Rescue Planning and Resource Allocation}
+
+\author{\IEEEauthorblockN{Group Member 1, Group Member 2}
+\IEEEauthorblockA{Course: ARTIFICIAL INTELLIGENCE (AIC 201)\\
+Instructor: Dr. Arshad Farhad, \texttt{arshadfarhad.buic@bahria.edu.pk}\\
+Assignment: Assignment 3 \& Assignment 4 (CCP-Based)}}
+
+\maketitle
+
+\begin{abstract}
+This report documents the design, implementation, and evaluation of the
+Adaptive Intelligent Disaster Response Agent (AIDRA). AIDRA integrates search-based
+planning, constraint satisfaction, local search, machine learning risk estimation,
+and uncertainty handling to operate under conflicting objectives (rescue time vs.
+risk exposure, victim prioritization vs. throughput) and dynamic environmental events
+(road blockages, spreading hazards). The document provides the system architecture,
+algorithms, experimental protocol, KPI computation, decision logs, and placeholders
+for artifacts (code repository and demo video).
+\end{abstract}
+
+\begin{IEEEkeywords}
+disaster response, planning, A*, CSP, fuzzy logic, machine learning, dynamic replanning
+\end{IEEEkeywords}
+
+\section{Introduction}
+Disaster response planning requires fast, robust decisions under uncertainty.
+We present AIDRA, a modular hybrid agent that combines classical search, CSP-based
+resource allocation, local search optimization, supervised ML risk estimators,
+and fuzzy reasoning to make explainable decisions in a dynamic simulated urban
+disaster (the provided CCP). The implementation and runtime traceability are
+intended to demonstrate trade-offs between conflicting objectives and to enable
+comparative evaluation.
+
+\section{CCP Summary and Objectives}
+Concise re-statement of the CCP baseline:
+\begin{itemize}
+  \item Grid-based urban map with high-risk zones and potentially blockable roads.
+  \item Resources: 2 ambulances, 1 rescue team, 10 medical kits.
+  \item Victims: 5 total (2 critical, 2 moderate, 1 minor).
+  \item Required outputs per run: prioritized rescue order, per-trip route with
+  explicit time-vs-risk trade-off, resource-allocation plan respecting hard
+  constraints, survival/risk estimates at rescue time, replanning decision log,
+  and comparative performance report across strategies.
+\end{itemize}
+
+\section{System Architecture}
+Figure~\ref{fig:arch} shows the high-level components and dataflow.
+
+\begin{figure}[!t]
+  \centering
+  % Insert a high-quality PDF of the architecture into figs/architecture.pdf
+  \includegraphics[width=0.95\linewidth]{figs/architecture.pdf}
+  \caption{AIDRA high-level architecture (placeholder).}
+  \label{fig:arch}
+\end{figure}
+
+Implementation mapping (files referenced in repository):
+\begin{itemize}
+  \item Search and heuristics: \texttt{src/engine/search.ts}, \texttt{src/engine/heuristics.ts}
+  \item Grid and environment generation: \texttt{src/engine/gridGenerator.ts}
+  \item Constraint solver: \texttt{src/engine/csp.ts}
+  \item Local search: \texttt{src/engine/localSearch.ts}
+  \item ML risk pipeline: \texttt{src/engine/mlRiskPipeline.ts}
+  \documentclass[conference]{IEEEtran}
+  \IEEEoverridecommandlockouts
+  \usepackage{times}
+  \usepackage{graphicx}
+  \usepackage{amsmath,amssymb}
+  \usepackage{booktabs}
+  \usepackage{caption}
+  \usepackage{subcaption}
+  \usepackage{balance}
+  \usepackage{url}
+  \usepackage{hyperref}
+  \usepackage{siunitx}
+  \usepackage{algorithm}
+  \usepackage{algpseudocode}
+  \usepackage{microtype}
+  \usepackage{listings}
+  \usepackage{longtable}
+
+  % Slight compression to help meet 6-page limit but keep readable
+  \setlength{\textfloatsep}{6pt}
+  \setlength{\floatsep}{6pt}
+  \setlength{\intextsep}{6pt}
+  \renewcommand{\baselinestretch}{0.985}
+
+  \begin{document}
+
+  	itle{Adaptive Intelligent Disaster Response Agent (AIDRA):\\
+  A Hybrid System for Dynamic Rescue Planning and Resource Allocation}
+
+  \author{\IEEEauthorblockN{Group Member 1, Group Member 2}
+  \IEEEauthorblockA{Course: ARTIFICIAL INTELLIGENCE (AIC 201)\\
+  Instructor: Dr. Arshad Farhad, \texttt{arshadfarhad.buic@bahria.edu.pk}\\
+  Assignment: Assignment 3 \& Assignment 4 (CCP-Based)}}
+
+  \maketitle
+
+  \begin{abstract}
+  This report presents the design, implementation, and empirical evaluation of
+  the Adaptive Intelligent Disaster Response Agent (AIDRA). AIDRA integrates
+  classical search and planning, constraint satisfaction, local search optimization,
+  machine learning-based risk estimation, and fuzzy uncertainty handling to
+  address multi-objective rescue problems under dynamic hazards. The system is
+  designed for the CCP baseline: five victims on a grid, two ambulances, one
+  rescue team, and changing environment events (blocked roads, spreading fires).
+  This document includes formal problem definitions, algorithms, implementation
+  mapping to the codebase, a detailed experimental protocol, KPI computation
+  formulas, example decision logs, and placeholders for artifact links.
+  \end{abstract}
+
+  \begin{IEEEkeywords}
+  disaster response, planning, A*, CSP, fuzzy logic, machine learning, dynamic replanning
+  \end{IEEEkeywords}
+
+  \section{Introduction}
+  Disaster response involves making critical trade-offs under uncertainty and
+  resource constraints. The CCP requires a system-level solution where multiple
+  AI techniques interact to generate, explain, and revise plans in real time.
+  This work focuses on an integrated pipeline that: (1) models the environment and
+  objectives, (2) generates route and assignment plans using search and CSP,
+  (3) estimates risk with ML models to inform decisions, and (4) handles uncertainty
+  via fuzzy reasoning and explicit logging for traceability.
+
+  We aim to demonstrate how different algorithmic choices affect KPIs such as
+  victims saved, average rescue time, and cumulative risk exposure, and to
+  provide reproducible artifacts (code and demonstration video) as required.
+
+  \section{CCP Formal Problem Definition}
+  We formalize the CCP as a dynamic, partially-observable multi-agent planning
+  problem with hard resource constraints.
+
+  \subsection{Environment and Entities}
+  - Grid: a 2D grid $G=(V,E)$ where $V$ are cells and $E$ edges representing
+    traversable connections. Each cell $v\in V$ has attributes: risk level
+    $r(v)\in[0,1]$, traversability $t(v)\in\{0,1\}$, and possibly a victim.
+  - Agents: two ambulances $A_1,A_2$ and one rescue team $R$.
+  - Victims: set $\mathcal{V} = \{v_1,\dots,v_5\}$ with severity levels
+    $s(v_i)\in\{\text{critical, moderate, minor}\}$.
+  - Medical centers: two fixed cells $M_1,M_2$ with differing distances.
+
+  \subsection{State, Actions, Observations}
+  State $S_t$ at time $t$ includes positions of ambulances and rescue team,
+  victim states (location, health, rescued flag), road states (open/blocked),
+  and kit inventory $K_t$. Actions $a\in A$ include movement along edges,
+  pick-up, drop-off, and reassign commands. Observations $o_t$ include explicit
+  event messages: blockages, hazard intensity updates, and discovered victims.
+
+  \subsection{Objectives}
+  We treat the problem as multi-objective. Primary objectives and formal metrics:
+  \begin{align}
+    &\text{VictimsSaved} = \sum_{i=1}^{5} \mathbf{1}\{\text{victim }i\text{ reached medical center}\}\\
+    &\text{AvgRescueTime} = \frac{1}{\max(1,\text{VictimsSaved})} \sum_{i:\text{rescued}} T_{rescue}(i)\\
+    &\text{RiskExposure} = \sum_{agents}\sum_{t} r(cell(agent,t))\cdot\Delta t
+  \end{align}
+
+  Agents must satisfy the hard constraint: at any time, an ambulance may carry at
+  most two victims.
+
+  \section{System Architecture (Detailed)}
+  Figure~\ref{fig:arch} provides the high-level module layout. Each module is
+  described with responsibilities and interfaces.
+
+  \begin{figure}[!t]
+    \centering
+    \includegraphics[width=0.98\linewidth]{figs/architecture.pdf}
+    \caption{AIDRA system architecture (placeholder PDF).}
+    \label{fig:arch}
+  \end{figure}
+
+  \subsection{Module Responsibilities}
+  - \textbf{Simulator / Environment}: manages grid, injects events, updates road
+    and risk states (\texttt{src/engine/simulationEngine.ts}).
+  - \textbf{Search \& Planner}: route computation and replanning (BFS, DFS,
+    Greedy Best-First, A*; see \texttt{src/engine/search.ts}).
+  - \textbf{CSP Solver}: assignment of victims to ambulances and scheduling
+    (backtracking with MRV/degree heuristics; \texttt{src/engine/csp.ts}).
+  - \textbf{Local Search}: schedule/post-optimization operators (\texttt{src/engine/localSearch.ts}).
+  - \textbf{ML Risk Pipeline}: feature extraction, model training, inference
+    (\texttt{src/engine/mlRiskPipeline.ts}).
+  - \textbf{Uncertainty Handler}: fuzzy rule base and probability estimators
+    (\texttt{src/engine/fuzzyLogic.ts}).
+  - \textbf{Logger / Visualizer}: decision logs, search traces, and export of
+    KPIs/figures (e.g., \texttt{src/data/placeholder.ts}).
+
+  \section{Search Algorithms and Heuristics}
+  We implement and evaluate the following planners with complexity notes and
+  practical considerations.
+
+  \subsection{Uninformed Search (BFS/DFS)}
+  Used for correctness baseline and small instance comparisons. BFS guarantees
+  shortest-path in unweighted grids; DFS provides quick exploration in constrained
+  settings but no optimality.
+
+  \subsection{Greedy Best-First}
+  Expands nodes by estimated proximity to goal using heuristic $h(n)$ (fast but
+  not optimal). Suitable for time-prioritization when risk term is small.
+
+  \subsection{A* (Admissible Heuristic)}
+  A* is used with a combined heuristic:
+  \begin{equation}
+    h(n) = \alpha \cdot \mathrm{dist}_{time}(n,goal) + \beta \cdot \mathrm{risk}_{est}(n,goal)
+  \end{equation}
+  Parameters $\alpha,\beta\ge 0$ control the trade-off. We ensure admissibility by
+  keeping $\beta$ small relative to an admissible lower bound on added risk cost
+  or by using a heuristic that underestimates true cost.
+
+  \subsection{Search Traceability}
+  Each search run logs: nodes expanded, frontier size over time, g-values, and
+  selected path. These traces are exported for visualization (search trace PDF).
+
+  \section{Constraint Satisfaction Formulation}
+  We present the CSP formalization used to allocate victims and schedule trips.
+
+  \subsection{Variables and Domains}
+  - For each ambulance trip slot $s$ and ambulance $a$, variable $X_{a,s}$ denotes
+    the subset of victims assigned (domain = subsets of remaining victims with
+    size $\le 2$).
+  - For rescue team timeslots, $Y_t$ denotes which location is serviced.
+
+  \subsection{Constraints}
+  - Capacity: $|X_{a,s}|\le 2$.
+  - Exclusivity: a victim can be assigned to at most one ambulance trip.
+  - Temporal feasibility: assigned trips must respect travel-time windows given
+    current road states.
+
+  \subsection{Solver Enhancements}
+  We use MRV to pick variables with smallest remaining domain, degree heuristic to
+  break ties, and forward checking to prune inconsistent domains early. We record
+  backtrack counts and runtime to compare heuristic effectiveness.
+
+  \section{Local Search Details}
+  Local search is applied to candidate assignment solutions to reduce objective
+  value post-CSP. Operators include swap two victims between ambulances, move one
+  victim to a different trip, and reverse route segment. For Simulated Annealing
+  we use an exponential cooling schedule $T_k=T_0\cdot\gamma^k$ with $\gamma\in(0,1)$.
+
+  \section{Machine Learning Risk Pipeline}
+  This section describes dataset synthesis, feature set, models, evaluation, and
+  integration into decision-making.
+
+  \subsection{Synthetic Dataset Generation}
+  When field data is unavailable, we synthesize labeled examples per grid cell and
+  victim by sampling event times, hazard intensities, victim severities, and
+  simulating short trajectories. Each example includes features listed below and
+  a binary survival label under a fixed rescue delay.
+
+  \subsection{Feature Set}
+  \begin{itemize}
+    \item Victim severity (one-hot encoded)
+    \item Distance to nearest medical center (Euclidean / grid hops)
+    \item Estimated travel time from nearest ambulance
+    \item Local hazard intensity (continuous)
+    \item Number of expected blockages on route (probabilistic estimate)
+    \item Time since incident reported
+  \end{itemize}
+
+  \subsection{Models and Training}
+  We implement and compare k-NN, Naive Bayes, and a small MLP (1 hidden layer).
+  Training uses stratified k-fold cross-validation (k=5) and hyperparameter
+  search (grid search) for MLP hidden units and k in k-NN. Evaluation metrics are
+  reported per fold and aggregated.
+
+  \subsection{Integration}
+  Model outputs $p_{survival}(v)$ are converted into risk contributions used in
+  heuristic cost: $r_{est} = 1 - p_{survival}$ (scaled). Policies may prioritize
+  victims with lower survival probability to maximize expected survivors.
+
+  \section{Uncertainty and Fuzzy Logic}
+  We implement a fuzzy rule base to combine noisy indicators into an interpretable
+  risk label. Membership functions are triangular/trapezoidal; example variable
+  "hazard intensity" uses Low/Medium/High sets.
+
+  Example rule (informal):
+  \begin{quote}
+  IF hazardIntensity IS High AND proximity IS Near THEN risk IS VeryHigh.
+  \end{quote}
+
+  Defuzzified numeric risk is used both as a planner input and as an explanatory
+  term in the decision log.
+
+  \section{Dynamic Replanning Policy}
+  We implement an event-driven replanning manager with the following logic:
+  \begin{enumerate}
+    \item On event, compute impact on active plans (affected trips, delay estimates).
+    \item If impact exceeds threshold (e.g., added delay > $\delta$ or route
+      blockage on critical trip), trigger full replanning: recompute CSP and route
+      plans using current world-state.
+    \item Otherwise attempt local repair: reroute affected ambulance only.
+  \end{enumerate}
+
+  Every decision produces a log entry recording: timestamp, event type, previous
+  plan summary, new plan summary, objective weights used, and justification.
+
+  \section{Experimental Design and Protocol}
+  This section details how to run controlled experiments and how to vary
+  parameters to compare algorithmic choices.
+
+  \subsection{Baseline Scenario}
+  Use the CCP baseline: grid size 16x16, victims at predefined coordinates, two
+  medical centers, 2 ambulances, 1 rescue team, 10 kits. Use fixed random seeds
+  for event injection to allow reproducibility.
+
+  \subsection{Parameter Sweeps}
+  Key parameter dimensions:
+  \begin{itemize}
+    \item Objective weight sweep: $\alpha\in\{0.2,0.5,1.0\}$, $\beta\in\{0.2,0.5,1.0\}$.
+    \item Planner: {BFS, DFS, Greedy, A*}.
+    \item CSP heuristics: {none, MRV\&degree\&forward-checking}.
+    \item ML models: {k-NN, MLP}.
+  \end{itemize}
+
+  For each experimental cell, run $N=30$ stochastic trials and report mean and
+  95\% confidence intervals for each KPI.
+
+  \section{KPIs: Definitions and Computation}
+  We provide formulas used to compute each KPI in the repository to ensure
+  consistent evaluation.
+
+  \subsection{Victims Saved and Failure Modes}
+  VictimsSaved is the integer count of victims reaching any medical center before
+  their clinically modeled survival horizon. Report both absolute counts and
+  percentage.
+
+  \subsection{Average Rescue Time}
+  Average over rescued victims; for non-rescued victims, time is counted until
+  simulation end and reported separately.
+
+  \subsection{Path Optimality Ratio}
+  When best-known cost is available (small instances), compute
+  \[ \text{OptimalityRatio} = \frac{cost_{found}}{cost_{best}}. \]
+
+  \subsection{Resource Utilization Rate}
+  Computed as fraction of time ambulances and team spend performing useful work
+  (traveling with victim or active rescue) over total simulation time.
+
+  \subsection{Risk Exposure Score}
+  Sum of risk-weighted time spent by all agents in risk zones, optionally weighted
+  by victim severity.
+
+  \section{Example Scenario (Illustrative)}
+  Below is an illustrative baseline instance you can run and use as an example
+  in the report. Replace with real experiment outputs when available.
+
+  \begin{itemize}
+    \item Grid: 16x16
+    \item Base (ambulance origin): (1,1)
+    \item Medical centers: M1=(16,1), M2=(16,16)
+    \item Victim positions and severities: V1=(4,5,critical), V2=(5,12,critical),
+      V3=(10,8,moderate), V4=(12,3,moderate), V5=(8,14,minor)
+    \item Event: road blockage at edge ((6,5)-(6,6)) at t=30s
+  \end{itemize}
+
+  Sample (placeholder) outcomes below should be replaced with real run data:
+  \begin{longtable}{p{0.32\linewidth}p{0.64\linewidth}}
+  	oprule
+  Outcome & Placeholder value \\\midrule
+  Victims saved & 4/5 \\
+  Avg rescue time & 235 s \\
+  Risk exposure & 12.4 (risk-units) \\
+  Planner used & A* with $\alpha=1.0,\beta=0.5$ \\
+  ML model & MLP (accuracy 0.86) \\
+  \bottomrule
+  \end{longtable}
+
+  \section{Decision Log Schema}
+  We recommend this JSON schema for each log entry (exported to CSV/JSON):
+  \begin{lstlisting}
+  {
+    "timestamp": "2026-05-05T00:01:34Z",
+    "event": "road_blockage",
+    "location": [6,5],
+    "affected_plans": ["Amb1_trip2"],
+    "previous_plan_summary": "Amb1: V1->M1 via path P1",
+    "new_plan_summary": "Amb1: V1->M1 via path P2",
+    "objective_weights": {"alpha":1.0,"beta":0.5},
+    "justification": "Blocked edge on P1; alternative avoids high-risk cell"
+  }
+  \end{lstlisting}
+
+  \section{Implementation Notes and File Map}
+  Key files and their purposes (update if your code differs):
+  \begin{itemize}
+    \item \texttt{src/engine/search.ts} -- search algorithms (BFS/DFS/Greedy/A*).
+    \item \texttt{src/engine/heuristics.ts} -- heuristic functions and weight sweep harness.
+    \item \texttt{src/engine/gridGenerator.ts} -- grid and scenario builders.
+    \item \texttt{src/engine/csp.ts} -- CSP solver with heuristics and instrumentation.
+    \item \texttt{src/engine/localSearch.ts} -- SA/Hill-climbing routines.
+    \item \texttt{src/engine/mlRiskPipeline.ts} -- feature pipeline, model training, scoring.
+    \item \texttt{src/engine/fuzzyLogic.ts} -- fuzzy rule base and defuzzification.
+    \item \texttt{src/engine/simulationEngine.ts} -- event injection and time loop.
+    \item \texttt{src/data/placeholder.ts} -- example scenarios and UI placeholders.
+  \end{itemize}
+
+  \section{Reproducibility Checklist}
+  Include these artifacts in your GitHub repository prior to submission:
+  \begin{itemize}
+    \item Scenario JSONs and seeds (to reproduce experiments).
+    \item Scripts to run experiments and aggregate KPIs (e.g., `scripts/run_all.sh`).
+    \item Raw CSV logs, aggregated KPI CSV, and figure-generating scripts.
+    \item `README.md` with exact commands, Node version, and dependency list.
+    \item Demonstration video link and notes on what is shown.
+  \end{itemize}
+
+  \section{Guidelines for Figures and Tables}
+  Use vector PDF for diagrams and high-resolution PNG for raster plots. Keep
+  captions concise and reference files in `figs/` directory. All figures must be
+  embedded as PDF in the final submission to preserve clarity.
+
+  \section{Discussion, Limitations, and Future Work}
+  We discuss effects of noisy sensors, simplified hazard dynamics, and the gap
+  between synthetic and field data. Future work includes richer ML using real
+  incident data, reinforcement-learning-based policies for continuous control,
+  and distributed multi-ambulance coordination.
+
+  \section{Conclusion}
+  This extended LaTeX template provides the textual content and structure needed
+  to produce an IEEE-format 6-page report for the AIDRA CCP assignment. Replace
+  placeholders, insert experimental results and high-quality figures, and verify
+  that the final PDF adheres to the 6-page limit.
+
+  \section*{Acknowledgments}
+  Instructor: Dr. Arshad Farhad.
+
+  \balance
+  \bibliographystyle{IEEEtran}
+  \bibliography{refs}
+
+  % ------------------------- Appendices (extended content) -------------------------
+  \appendix
+  \section{Detailed Algorithms and Pseudocode}
+  This appendix contains detailed pseudocode for core algorithms used in AIDRA.
+
+  \subsection{Backtracking CSP Solver with MRV and Forward Checking}
+  The CSP solver is central to resource allocation. The pseudocode below mirrors
+  the implementation in `src/engine/csp.ts` and documents instrumentation points
+  for backtracks and domain pruning.
+
+  \begin{algorithm}
+  \caption{CSP Backtracking with MRV + Forward Checking}
+  \begin{algorithmic}[1]
+  \Procedure{CSP-Backtrack}{$Vars,Domains,Constraints$}
+    \If{all variables assigned} \State \textbf{return} solution \EndIf
+    \State var $\leftarrow$ SelectVariableMRV($Vars,Domains$)
+    \ForAll{value $\in$ OrderDomain(var)}
+      \If{Consistent(var,value,Constraints)}
+        \State Assign(var,value)
+        \State savedDomains $\leftarrow$ copy(Domains)
+        \State Domains $\leftarrow$ ForwardCheck(var,value,Domains,Constraints)
+        \If{no domain empty}
+          \State result $\leftarrow$ CSP-Backtrack($Vars,Domains,Constraints$)
+          \If{result successful} \State \textbf{return} result \EndIf
+        \EndIf
+        \State Domains $\leftarrow$ savedDomains
+        \State Unassign(var)
+        \State increment(backtrackCounter)
+      \EndIf
+    \EndFor
+    \State \textbf{return} failure
+  \EndProcedure
+  \end{algorithmic}
+  \end{algorithm}
+
+  Notes: MRV chooses the variable with smallest domain; tie-breaking uses degree
+  heuristic. Forward checking prunes neighbors' domains; every domain prune is
+  logged for later analysis.
+
+  \subsection{A* Implementation Notes}
+  We implement A* with an adaptable heuristic function. To support trade-off
+  analysis we parameterize the heuristic as a linear combination and expose
+  weights to the experiment harness. Pseudocode is standard (see Section V), with
+  instrumentation hooks to record nodes expanded and frontier sizes.
+
+  \subsection{Simulated Annealing for Schedule Optimization}
+  Key parameters used in experiments:
+  \begin{itemize}
+    \item Initial temperature $T_0 = 1.0$.
+    \item Cooling factor $\gamma = 0.995$.
+    \item Iteration cap $I_{max} = 10000$.
+  \end{itemize}
+
+  Pseudocode (high-level):
+  \begin{algorithm}
+  \caption{Simulated Annealing (schedule optimization)}
+  \begin{algorithmic}[1]
+  \Procedure{SA}{$s_0$}
+    \State $s \leftarrow s_0$, $T \leftarrow T_0$
+    \For{$k=1$ to $I_{max}$}
+      \State $s' \leftarrow$ RandomNeighbor($s$)
+      \State $\Delta = cost(s') - cost(s)$
+      \If{$\Delta < 0$ or \text{rand()} < exp(-\Delta / T)}
+        \State $s \leftarrow s'$
+      \EndIf
+      \State $T \leftarrow \gamma T$
+    \EndFor
+    \State \textbf{return} best observed $s$
+  \EndProcedure
+  \end{algorithmic}
+  \end{algorithm}
+
+  \section{Machine Learning Training and Evaluation Details}
+  This appendix provides concrete hyperparameters, feature normalization steps,
+  and evaluation pipelines used for k-NN and MLP models in `src/engine/mlRiskPipeline.ts`.
+
+  \subsection{Feature Preprocessing}
+  Features are normalized per-feature using training-set statistics (mean, std).
+  Categorical features (victim severity) are one-hot encoded. Missing values are
+  imputed with median (continuous) or mode (categorical).
+
+  \subsection{k-NN}
+  \begin{itemize}
+    \item Distance metric: Manhattan (grid-oriented) and Euclidean (experimented).
+    \item k selection: grid-search over $k \in \{1,3,5,7\}$ using cross-validation.
+  \end{itemize}
+
+  \subsection{MLP}
+  \begin{itemize}
+    \item Architecture: input\_dim - 32 - ReLU - 16 - ReLU - Sigmoid output.
+    \item Loss: binary cross-entropy for survival label.
+    \item Optimizer: Adam, learning rate $1e-3$.
+    \item Batch size: 64, epochs: up to 200 with early stopping (patience 10).
+  \end{itemize}
+
+  \subsection{Evaluation Protocol}
+  - Stratified 5-fold CV for robust estimates.
+  - Report: Accuracy, Precision, Recall, F1, AUC-ROC and confusion matrix.
+  - We additionally report calibration (Brier score) for $p_{survival}$ outputs.
+
+  \section{Experimental Results Templates}
+  Below are extended table templates and plotting suggestions to include in the
+  final paper. Replace placeholders with real numbers from your runs.
+
+  \begin{table*}[!t]
+    \centering
+    \caption{Detailed experimental results template (fill with your values)}
+    \begin{tabular}{lrrrrrrrr}
+      \toprule
+      Run & VictimsSaved & AvgTime(s) & RiskExp & PathOptRatio & AmbUtil(\%) & Backtracks & ML-F1 & Notes \\
+      \midrule
+      A* (\alpha=1,\beta=0.5) & -- & -- & -- & -- & -- & -- & -- & time-prioritized \\
+      Greedy (risk) & -- & -- & -- & -- & -- & -- & -- & risk-aware heuristic \\
+      CSP (no heur) & -- & -- & -- & -- & -- & -- & -- & baseline CSP \\
+      CSP (with heur) & -- & -- & -- & -- & -- & -- & -- & MRV+FC \\
+      \bottomrule
+    \end{tabular}
+    \label{tab:results_template}
+  \end{table*}
+
+  Plot suggestions:
+  \begin{itemize}
+    \item Pareto front: VictimsSaved vs AvgRescueTime across weight sweep.
+    \item Bar chart: Backtrack counts with/without CSP heuristics.
+    \item Confusion matrix heatmap for ML models.
+    \item Search trace time series: nodes expanded vs time for A* and Greedy.
+  \end{itemize}
+
+  \section{Example Decision Logs (Expanded)}
+  Here are several example log entries demonstrating how to explain decisions.
+
+  \begin{verbatim}
+  2026-05-05T00:01:34Z | EVENT: road_blockage at (6,5) | AFFECTED: Amb1_trip2
+  PREV_PLAN: Amb1: V1->M1 via P1 cost=120s risk=3.4
+  NEW_PLAN: Amb1: V1->M1 via P2 cost=150s risk=0.6
+  PRIORITIZED: time (alpha=1.0,beta=0.5) | JUSTIFICATION: Blocked edge on P1; alternate P2 increases time by 30s but reduces predicted risk exposure by 82%.
+
+  2026-05-05T00:02:10Z | EVENT: new_victim at (9,9) | AFFECTED: CSP
+  PREV_ASSIGN: Amb2 scheduled for V3,V5
+  NEW_ASSIGN: Amb2 -> V3; Amb1 assigned V5 (rebalancing to respect capacity)
+  PRIORITIZED: survival (ML suggests V_new p_survival=0.22)
+
+  2026-05-05T00:03:50Z | EVENT: kit_depletion Amb1 | AFFECTED: subsequent pickups
+  ACTION: Reallocate kit from base; postpone non-critical pickup
+  JUSTIFICATION: Kits limited, prioritize critical victims
+  \end{verbatim}
+
+  \section{Writing and Page-Limit Tips}
+  To fit the 6-page IEEE limit while preserving content quality:
+  \begin{itemize}
+    \item Use concise captions and combine related figures into subfigures.
+    \item Move extended algorithm pseudocode and long tables to an appendix (as
+      allowed by submission) or supplementary material repository.
+    \item Use `\small` environment for long tables and `\scriptsize` for dense
+      captions where necessary (but keep readability).
+  \end{itemize}
+
+  \section{References (suggested starter entries)}
+  Add relevant citations to `refs.bib`. Example BibTeX entries:
+  \begin{verbatim}
+  @book{russell2016artificial,
+    title={Artificial Intelligence: A Modern Approach},
+    author={Russell, Stuart and Norvig, Peter},
+    year={2016},
+    publisher={Pearson}
+  }
+
+  @article{hart1968formal,
+    title={A formal basis for the heuristic determination of minimum cost paths},
+    author={Hart, P. E. and Nilsson, N. J. and Raphael, B.},
+    journal={IEEE Transactions on Systems Science and Cybernetics},
+    year={1968}
+  }
+  \end{verbatim}
+
+  \section{Next Steps I can take for you}
+  If you want, I can now:
+  \begin{itemize}
+    \item Insert your real group names and GitHub/LinkedIn links into `report.tex`.
+    \item Generate a placeholder vector `figs/architecture.pdf` from a simple
+      diagram description and commit it.
+    \item Run the project's simulation harness (if available) to produce KPI CSVs
+      and populate the result tables and figures.
+  \end{itemize}
+
+  Tell me which of these you'd like me to do next and provide any missing
+  details (group names, GitHub repo URL, whether to run simulations).
+
+  \end{document}

@@ -23,18 +23,18 @@ export default function Navbar({
 }: NavbarProps) {
   return (
     <nav className="h-[60px] flex items-center justify-between px-5 bg-[#0a0f1e] border-b border-[#1e293b] shrink-0 z-50">
-      {/* Left: Logo */}
       <div className="flex items-center gap-3 shrink-0">
         <div className="w-9 h-9 rounded-full bg-red-500/20 flex items-center justify-center glow-red">
           <Cross className="w-5 h-5 text-red-500" />
         </div>
         <div className="leading-tight">
           <div className="text-[22px] font-bold tracking-wide text-[#f1f5f9] leading-none">AIDRA</div>
-          <div className="text-[10px] text-[#94a3b8] leading-tight mt-0.5">Adaptive Intelligent Disaster Response Agent</div>
+          <div className="text-[10px] text-[#94a3b8] leading-tight mt-0.5">
+            Adaptive Intelligent Disaster Response Agent
+          </div>
         </div>
       </div>
 
-      {/* Center: Tabs */}
       <div className="flex items-center gap-1.5">
         {TABS.map((tab) => {
           const Icon = iconMap[tab.icon];
@@ -58,7 +58,6 @@ export default function Navbar({
         })}
       </div>
 
-      {/* Right: Status */}
       <div className="flex items-center gap-4 shrink-0">
         {running ? (
           <div className="flex items-center gap-1.5">

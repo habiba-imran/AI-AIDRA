@@ -394,10 +394,10 @@ export interface SimulationActions {
   setMLModel: (model: MLModel) => void;
   setObjectivePriority: (obj: ObjectivePriority) => void;
   toggleFuzzyLogic: () => void;
-  triggerAfterShock: () => void;
-  blockRandomRoad: () => void;
-  addNewVictim: () => void;
-  spreadFireZone: () => void;
+  triggerAfterShock: (row: number, col: number) => void;
+  blockRoadAt: (row: number, col: number) => void;
+  addVictimAt: (row: number, col: number) => void;
+  spreadFireFrom: (row: number, col: number) => void;
   applyAndReplan: () => void;
   clearLog: () => void;
   dismissToast: (id: string) => void;

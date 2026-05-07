@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, RotateCcw, Sparkles, GitBranch, Filter } from 'lucide-react';
 import type { CspConstraint, CspSolution, CspTreeNode, Victim } from '../types';
 
@@ -145,6 +145,49 @@ export default function CspSolver({
   victims: Victim[];
   onRunCsp: () => void;
 }) {
+  const DEFAULT_PERF_PANEL_HEIGHT = 220;
+  const MIN_PERF_PANEL_HEIGHT = 120;
+  const MAX_PERF_PANEL_HEIGHT_RATIO = 0.75;
+
+  const [perfPanelHeight, setPerfPanelHeight] = useState(DEFAULT_PERF_PANEL_HEIGHT);
+  const dragStartYRef = useRef(0);
+  const dragStartHeightRef = useRef(DEFAULT_PERF_PANEL_HEIGHT);
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      const deltaY = dragStartYRef.current - e.clientY;
+      const maxHeight = Math.floor(window.innerHeight * MAX_PERF_PANEL_HEIGHT_RATIO);
+      const nextHeight = Math.min(
+        maxHeight,
+        Math.max(MIN_PERF_PANEL_HEIGHT, dragStartHeightRef.current + deltaY)
+      );
+      setPerfPanelHeight(nextHeight);
+    };
+
+    const onMouseUp = () => {
+      isDraggingRef.current = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
+  const handleResizeStart = (e: React.MouseEvent<HTMLButtonElement>) => {
+    isDraggingRef.current = true;
+    dragStartYRef.current = e.clientY;
+    dragStartHeightRef.current = perfPanelHeight;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ns-resize';
+  };
+
   const constraintHeaders = ['Amb1', 'Amb2', 'Team', 'Kits', 'Overall'];
 
   const flatTree = useMemo(() => {
@@ -433,7 +476,18 @@ export default function CspSolver({
       </div>
 
       {/* Bottom: Performance */}
-      <div className="shrink-0 border-t border-[#1e293b] bg-[#0a0f1e] px-4 py-3">
+      <div
+        className="shrink-0 border-t border-[#1e293b] bg-[#0a0f1e] px-4 py-3 overflow-y-auto"
+        style={{ height: `${perfPanelHeight}px` }}
+      >
+        <button
+          type="button"
+          onMouseDown={handleResizeStart}
+          className="w-full flex justify-center items-center h-3 -mt-2 mb-1 cursor-row-resize group"
+          aria-label="Resize CSP Solver Performance Analysis panel"
+        >
+          <span className="h-1 w-16 rounded-full bg-[#334155] group-hover:bg-[#475569] transition-colors" />
+        </button>
         <SectionLabel>CSP Solver Performance Analysis</SectionLabel>
         <div className="flex gap-4">
           <div className="flex-1 card-glass p-3 overflow-x-auto">
