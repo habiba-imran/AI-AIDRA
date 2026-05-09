@@ -248,6 +248,18 @@ export interface SimulationState {
   currentRouteAmb2: Array<{ row: number; col: number }>;
   currentRouteTeam: Array<{ row: number; col: number }>;
   cspSolution: CspSolution | null;
+  /**
+   * Initial medical-kit budget (= 10 by default). Stays constant for the run; used as the
+   * denominator in the LeftPanel "X / 10 kits" widget.
+   */
+  kitsBudget: number;
+  /**
+   * Kits not yet consumed. Decrements by 1 each time a victim is picked up. The CSP uses
+   * this as the actual upper bound on `kitsUsed` per wave (replacing the old hard-coded
+   * `≤ 10` check), so cumulative consumption across waves is enforced. Once it hits 0,
+   * the CSP can only place victims into the wait queue — i.e. resource depletion.
+   */
+  kitsRemaining: number;
   /** Last ML train/eval run; null until user runs evaluation from ML Studio. */
   mlEvalSnapshot: MlEvalSnapshot | null;
   /** Latest per-victim predictions (updated when CSP runs and snapshot exists). */

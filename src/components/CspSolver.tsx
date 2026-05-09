@@ -139,10 +139,14 @@ function TreeNode({ nodeId, nodes, x, y }: { nodeId: string; nodes: Record<strin
 export default function CspSolver({
   cspSolution,
   victims,
+  kitsRemaining,
+  kitsBudget,
   onRunCsp,
 }: {
   cspSolution: CspSolution | null;
   victims: Victim[];
+  kitsRemaining: number;
+  kitsBudget: number;
   onRunCsp: () => void;
 }) {
   const DEFAULT_PERF_PANEL_HEIGHT = 220;
@@ -466,7 +470,8 @@ export default function CspSolver({
                 <span className="text-[11px] font-semibold text-[#f1f5f9]">Kits Used</span>
                 <span className="text-[10px] text-[#94a3b8]">
                   {' → '}
-                  {cspSolution?.kitsUsed ?? 0} / 10
+                  {cspSolution?.kitsUsed ?? 0} this wave · {kitsRemaining} of{' '}
+                  {kitsBudget} remain globally
                 </span>
               </div>
             </div>

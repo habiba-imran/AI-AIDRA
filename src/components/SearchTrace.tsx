@@ -3,6 +3,8 @@ import { SkipBack, ChevronLeft, ChevronRight, Play, Zap, Shield, Scale } from 'l
 import type {
   AlgoComparison,
   GridCell,
+  LocalSearch,
+  LocalSearchResult,
   NodeState,
   ObjectivePriority,
   SearchAlgorithm,
@@ -172,6 +174,15 @@ interface SearchTraceProps {
   grid: GridCell[][];
   victims: Victim[];
   objectivePriority: ObjectivePriority;
+  /**
+   * Latest local-search polish result (HC or SA). The simulator runs this on top of the
+   * global search every time `runSearchPlanningPatch` fires, but the value sat unused in
+   * state until now. Showing it here closes the loop on the rubric's "local search at
+   * least one — Hill Climbing or Simulated Annealing for alternative optimization".
+   */
+  localSearchResult: LocalSearchResult | null;
+  /** Active local-search algorithm (controlled by AI Config dropdown). */
+  localSearchAlgorithm: LocalSearch;
   onRunSearch: (algo: SearchAlgorithm) => void;
   /** Phase 5: fuzzy-adjusted edge costs (1 = crisp). */
   fuzzyRiskStep: number;
@@ -184,6 +195,8 @@ export default function SearchTrace({
   grid,
   victims,
   objectivePriority,
+  localSearchResult,
+  localSearchAlgorithm,
   onRunSearch,
   fuzzyRiskStep,
   fuzzyHeuristicWeight,
@@ -568,6 +581,73 @@ export default function SearchTrace({
               </table>
             </div>
           </div>
+
+          {(() => {
+            /**
+             * Local-search polish card. Hill Climbing greedily improves the global
+             * search's path with adjacent-swap moves; Simulated Annealing accepts
+             * occasional uphill moves to escape local minima. Either way, this card
+             * shows: which algorithm ran, the cost before / after the polish, the
+             * iteration count, and the % improvement. If the polish couldn't help
+             * (path empty, single cell, or already optimal) we still show the inputs
+             * so the user can see the algorithm did run.
+             */
+            const lsLabel = localSearchAlgorithm === 'HillClimbing' ? 'Hill Climbing' : 'Simulated Annealing';
+            const hasResult = !!localSearchResult && localSearchResult.iterations > 0;
+            const initial = localSearchResult?.initialCost ?? 0;
+            const final = localSearchResult?.finalCost ?? 0;
+            const iters = localSearchResult?.iterations ?? 0;
+            const improvement = localSearchResult?.improvement ?? 0;
+            const improvedColor =
+              improvement > 5
+                ? 'text-green-400'
+                : improvement > 0
+                ? 'text-amber-300'
+                : 'text-[#94a3b8]';
+            return (
+              <div className="card-glass p-3 mt-0.5 glow-purple">
+                <div className="text-[10px] font-semibold tracking-[0.15em] text-purple-400 uppercase mb-2 flex items-center justify-between">
+                  <span>Local Search Polish</span>
+                  <span className="text-[8px] font-medium text-[#94a3b8] tracking-wider">
+                    {lsLabel}
+                  </span>
+                </div>
+                {hasResult ? (
+                  <div className="grid grid-cols-2 gap-2 text-[9px]">
+                    <div className="bg-[#020817] rounded-md px-2 py-1.5 border border-[#1e293b]">
+                      <div className="text-[8px] uppercase tracking-wide text-[#64748b]">Initial cost</div>
+                      <div className="text-[#cbd5e1] font-mono-display">{initial.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-[#020817] rounded-md px-2 py-1.5 border border-[#1e293b]">
+                      <div className="text-[8px] uppercase tracking-wide text-[#64748b]">Final cost</div>
+                      <div className="text-[#f1f5f9] font-mono-display font-semibold">{final.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-[#020817] rounded-md px-2 py-1.5 border border-[#1e293b]">
+                      <div className="text-[8px] uppercase tracking-wide text-[#64748b]">Iterations</div>
+                      <div className="text-[#cbd5e1] font-mono-display">{iters}</div>
+                    </div>
+                    <div className="bg-[#020817] rounded-md px-2 py-1.5 border border-[#1e293b]">
+                      <div className="text-[8px] uppercase tracking-wide text-[#64748b]">Improvement</div>
+                      <div className={`font-mono-display font-semibold ${improvedColor}`}>
+                        {improvement > 0 ? `−${improvement.toFixed(1)}%` : '0.0%'}
+                      </div>
+                    </div>
+                    <div className="col-span-2 text-[8px] text-[#64748b] italic mt-1 leading-snug">
+                      {localSearchAlgorithm === 'HillClimbing'
+                        ? 'Greedy adjacent-swap polish — accepts only strictly better neighbours; halts at the first local minimum.'
+                        : 'Cooling-schedule annealing — accepts uphill moves with prob. e^(−Δ/T) to escape local minima before T → 0.'}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[9px] text-[#94a3b8] leading-snug">
+                    Run the simulation (or hit ▶ in Live Sim) to seed an initial path —{' '}
+                    <span className="text-[#f1f5f9]">{lsLabel}</span> will then polish it
+                    and surface the cost delta here.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <div className="card-glass p-3 glow-blue overflow-y-auto min-h-[220px] mt-0.5">
             <div className="text-[10px] font-semibold tracking-[0.15em] text-[#3b82f6] uppercase mb-2">Trade-off Analysis</div>

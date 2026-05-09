@@ -231,13 +231,51 @@ export default function LeftPanel({ state, actions, variant = 'standalone' }: Le
               );
             })()}
 
-            <div className="flex items-center gap-2 rounded border border-[#1e293b]/80 py-2 px-2.5">
-              <span className="text-[12px] font-medium text-[#f1f5f9] shrink-0">🧰 Kits</span>
-              <span className="text-[12px] text-green-400 font-medium shrink-0">10/10</span>
-              <div className="flex-1 min-w-0 h-2 bg-[#1e293b] rounded-full overflow-hidden">
-                <div className="h-full bg-[#22c55e] rounded-full" style={{ width: '100%' }} />
-              </div>
-            </div>
+            {(() => {
+              /**
+               * Kits widget reflects live `kitsRemaining / kitsBudget`. Bar color shifts as
+               * supply runs low so the user can see the global hard constraint approaching:
+               * green ≥ 50%, amber ≥ 20%, red below that. At 0 the panel turns red and the
+               * CSP can no longer assign anyone — they all fall into the wait queue.
+               */
+              const used = state.kitsBudget - state.kitsRemaining;
+              const fillPct = Math.max(
+                0,
+                Math.min(100, (state.kitsRemaining / state.kitsBudget) * 100)
+              );
+              const ratio = state.kitsRemaining / state.kitsBudget;
+              const barColor =
+                ratio >= 0.5
+                  ? 'bg-[#22c55e]'
+                  : ratio >= 0.2
+                  ? 'bg-amber-400'
+                  : 'bg-red-500';
+              const textColor =
+                ratio >= 0.5
+                  ? 'text-green-400'
+                  : ratio >= 0.2
+                  ? 'text-amber-300'
+                  : 'text-red-400';
+              return (
+                <div className="flex items-center gap-2 rounded border border-[#1e293b]/80 py-2 px-2.5">
+                  <span className="text-[12px] font-medium text-[#f1f5f9] shrink-0">🧰 Kits</span>
+                  <span className={`text-[12px] font-medium shrink-0 ${textColor}`}>
+                    {state.kitsRemaining}/{state.kitsBudget}
+                  </span>
+                  <div className="flex-1 min-w-0 h-2 bg-[#1e293b] rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${barColor} rounded-full transition-all duration-300`}
+                      style={{ width: `${fillPct}%` }}
+                    />
+                  </div>
+                  {used > 0 && (
+                    <span className="text-[10px] text-[#94a3b8] font-mono-display shrink-0">
+                      {used} used
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

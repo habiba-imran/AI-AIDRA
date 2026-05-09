@@ -8,6 +8,7 @@ import {
   severityAccentClass,
 } from '../utils/priorityReasoning';
 import { downloadRunSnapshot } from '../utils/exportRun';
+import { formatTime } from '../utils/formatters';
 
 function SectionLabel({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (

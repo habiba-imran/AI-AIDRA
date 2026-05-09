@@ -16,7 +16,7 @@ import type {
   Victim,
 } from '../types';
 import { evaluateFuzzyRouting } from './fuzzyLogic';
-import { solveCsp } from './csp';
+import { deriveTeamRidesWith, solveCsp } from './csp';
 import {
   extractVictimFeatures,
   predictWithModel,
@@ -118,6 +118,52 @@ function objectiveLabel(o: ObjectivePriority): string {
   }
 }
 
+/**
+ * Build a per-leg trade-off log line for a single ambulance dispatch. Each line
+ * names the unit, the target victim (with severity), the search algorithm, the
+ * concrete cost/risk metrics produced by that search, and a one-clause justification
+ * explaining which side of the time-vs-risk trade-off the agent chose. The rubric
+ * lists this explicit justification as a required output for every rescue trip.
+ */
+function buildTradeoffLine(
+  ambId: string,
+  target: Victim,
+  algo: SearchAlgorithm,
+  objective: ObjectivePriority,
+  pathCost: number,
+  riskScore: number,
+  fuzzyOn: boolean
+): string {
+  const sev = target.severity.toUpperCase();
+  let justification: string;
+  switch (objective) {
+    case 'MinimizeTime':
+      justification =
+        riskScore >= 5
+          ? 'accepting elevated risk to shorten time-to-pickup (Minimize Time)'
+          : 'short low-risk path available — both objectives aligned';
+      break;
+    case 'MinimizeRisk':
+      justification =
+        riskScore <= 3
+          ? 'avoided high-risk cells; longer path traded for lower exposure (Minimize Risk)'
+          : 'no clean detour found — best of available paths under Minimize Risk';
+      break;
+    case 'Balanced':
+      justification = 'cost+risk weighted equally under Balanced objective';
+      break;
+    default: {
+      const _e: never = objective;
+      justification = _e;
+    }
+  }
+  const fuzzyTag = fuzzyOn ? ' · fuzzy on' : '';
+  return (
+    `🛣 ${ambId} → ${target.id} (${sev}): ${searchAlgoLabel(algo)} ` +
+    `cost=${pathCost.toFixed(1)} risk=${riskScore.toFixed(2)} — ${justification}${fuzzyTag}`
+  );
+}
+
 function collectRouteCells(
   ambulances: Ambulance[],
   team: RescueTeam
@@ -162,6 +208,7 @@ function computeResourceUtilization(
 
 function computeKpis(state: SimulationState): KPI[] {
   const saved = state.victims.filter((v) => v.status === 'rescued').length;
+  const lost = state.victims.filter((v) => v.status === 'lost').length;
   const total = state.victims.length;
   /**
    * Avg rescue time = mean wall-clock elapsed seconds from sim start to pick-up,
@@ -197,6 +244,18 @@ function computeKpis(state: SimulationState): KPI[] {
       label: 'Victims Saved',
       value: `${saved} / ${total}`,
       color: 'amber',
+    },
+    {
+      /**
+       * Victims Lost is the assignment's other half of "Victims Saved" — the rubric
+       * scenario explicitly allows fatalities ("the goal is to compare AI techniques
+       * under conflicting objectives"). Surfacing it as a first-class KPI lets the
+       * dashboard show the cost of a chosen strategy, not just its successes.
+       */
+      icon: '☠',
+      label: 'Victims Lost',
+      value: `${lost} / ${total}`,
+      color: lost > 0 ? 'red' : 'green',
     },
     {
       icon: '⏱',
@@ -487,19 +546,42 @@ function etaForAmbList(
 function applyCspSolution(state: SimulationState): SimulationState {
   const { victimsForCsp, victimMlEstimates, mlLogText, fuzzyLogText } =
     buildVictimsForCspWithOptionalMl(state);
-  const solution = solveCsp(victimsForCsp);
+  /** CSP variables must be dispatch-active only — rescued/lost are done and must not
+   *  consume ambulance slots or the solver will "re-assign" them and strand units
+   *  en-route to cells where pickup is skipped (status already `rescued`). */
+  const cspVictims = victimsForCsp.filter(
+    (v) => v.status !== 'rescued' && v.status !== 'lost'
+  );
+  const solution = solveCsp(cspVictims, state.kitsRemaining, state.kitsBudget);
+
+  const finishedVictimIds = new Set(
+    state.victims.filter((v) => v.status === 'rescued' || v.status === 'lost').map((v) => v.id)
+  );
+  const amb1Disp = solution.amb1Victims.filter((id) => !finishedVictimIds.has(id));
+  const amb2Disp = solution.amb2Victims.filter((id) => !finishedVictimIds.has(id));
+  const queuedDisp = solution.queuedVictims.filter((id) => !finishedVictimIds.has(id));
+  const dispatchTeamRidesWith = deriveTeamRidesWith(amb1Disp, amb2Disp, state.victims);
+  const dispatchKitsUsed = amb1Disp.length + amb2Disp.length;
+  const solutionForState = {
+    ...solution,
+    amb1Victims: amb1Disp,
+    amb2Victims: amb2Disp,
+    queuedVictims: queuedDisp,
+    teamRidesWith: dispatchTeamRidesWith,
+    kitsUsed: dispatchKitsUsed,
+  };
 
   const assignedVictims = state.victims.map((v) => {
     if (v.status === 'rescued' || v.status === 'lost') {
       return v;
     }
     let next: Victim;
-    if (solution.amb1Victims.includes(v.id)) {
+    if (amb1Disp.includes(v.id)) {
       next = { ...v, assignedTo: 'Amb1', status: 'en-route' as const, eta: null };
-    } else if (solution.amb2Victims.includes(v.id)) {
+    } else if (amb2Disp.includes(v.id)) {
       next = { ...v, assignedTo: 'Amb2', status: 'en-route' as const, eta: null };
     } else {
-      // Includes solution.queuedVictims (kept as `waiting` until next wave) and any leftover.
+      // Includes queuedDisp (kept as `waiting` until next wave) and any leftover.
       next = { ...v, assignedTo: null, status: 'waiting' as const, eta: null };
     }
     return { ...next, priorityScore: v.priorityScore };
@@ -515,23 +597,116 @@ function applyCspSolution(state: SimulationState): SimulationState {
    */
   const abandonedVictimIds: string[] = [];
 
+  /**
+   * Per-leg trade-off lines accumulated while planning the first leg for each
+   * ambulance. The rubric explicitly asks for "the selected route for each rescue
+   * trip, with explicit identification of the trade-off made (time vs. risk)" —
+   * these log entries are that justification.
+   */
+  const legTradeoffLogs: DecisionLogEntry[] = [];
+
+  /**
+   * Helper for ambulances that come out of CSP with no new assignment. The previous
+   * code reset them to `idle` with an empty route — but a unit currently mid-grid
+   * (e.g. it was returning to MC from a wave-1 drop-off when wave-2 dispatch fired,
+   * or its only target was abandoned as unreachable) would then sit there forever
+   * because idle units don't advance. This helper sends such a unit back to the
+   * cheapest reachable MC instead, mirroring the rescue-loop's post-pickup logic.
+   * If both MCs are unreachable, it strands cleanly.
+   */
+  const stallReassignLogs: DecisionLogEntry[] = [];
+  const homeOrIdle = (
+    amb: SimulationState['ambulances'][number],
+    reason: 'unassigned' | 'unreachable-target'
+  ): SimulationState['ambulances'][number] => {
+    if (ambAtHomeTile(state.grid, amb.currentRow, amb.currentCol)) {
+      return {
+        ...amb,
+        assignedVictims: [],
+        route: [],
+        eta: null,
+        status: 'idle' as const,
+      };
+    }
+    const choice = pickBestMc(state, amb.currentRow, amb.currentCol);
+    if (!choice) {
+      stallReassignLogs.push({
+        id: generateId(),
+        timestamp: formatTime(state.elapsedSeconds),
+        text:
+          `❌ ${amb.id} stranded at (${amb.currentRow},${amb.currentCol}) — both MCs unreachable ` +
+          `and no new assignment from CSP.`,
+        type: 'replan',
+      });
+      return {
+        ...amb,
+        assignedVictims: [],
+        route: [],
+        eta: null,
+        status: 'stranded' as const,
+      };
+    }
+    const reasonText =
+      reason === 'unreachable-target'
+        ? 'first target unreachable from current cell'
+        : 'no new assignment from CSP this wave';
+    stallReassignLogs.push({
+      id: generateId(),
+      timestamp: formatTime(state.elapsedSeconds),
+      text:
+        `🏥 ${amb.id} ${reasonText} — heading back to ${choice.mcId} ` +
+        `(cost=${choice.route.length > 1 ? choice.route.length - 1 : 0})`,
+      type: 'replan',
+    });
+    return {
+      ...amb,
+      assignedVictims: [],
+      route: choice.route,
+      eta: choice.route.length > 1 ? choice.route.length - 1 : null,
+      status: 'returning' as const,
+    };
+  };
+
   const updatedAmbs = state.ambulances.map((amb) => {
     const assigned = amb.id === 'Amb1' ? solution.amb1Victims : solution.amb2Victims;
     const firstTargetId = assigned[0] ?? null;
     const firstTarget = firstTargetId ? victimsById.get(firstTargetId) : null;
     let route: Array<{ row: number; col: number }> = [];
     if (firstTarget) {
-      route = planRoute(state, amb.currentRow, amb.currentCol, firstTarget.row, firstTarget.col);
+      const planned = planRouteResult(
+        state,
+        amb.currentRow,
+        amb.currentCol,
+        firstTarget.row,
+        firstTarget.col
+      );
+      route = planned.path;
       if (route.length === 0) {
         for (const id of assigned) abandonedVictimIds.push(id);
-        return {
-          ...amb,
-          assignedVictims: [],
-          route: [],
-          eta: null,
-          status: 'idle' as const,
-        };
+        return homeOrIdle(amb, 'unreachable-target');
       }
+      legTradeoffLogs.push({
+        id: generateId(),
+        timestamp: formatTime(state.elapsedSeconds),
+        text: buildTradeoffLine(
+          amb.id,
+          firstTarget,
+          state.searchAlgorithm,
+          state.objectivePriority,
+          planned.pathCost,
+          planned.riskScore,
+          state.fuzzyLogicEnabled
+        ),
+        type: 'normal',
+      });
+    }
+    if (assigned.length === 0) {
+      /**
+       * No new pickups assigned this wave AND no first target — send home so the
+       * unit doesn't sit in the middle of the grid as `idle` (which `advanceResources`
+       * skips, freezing the unit on its current cell forever).
+       */
+      return homeOrIdle(amb, 'unassigned');
     }
     return {
       ...amb,
@@ -623,6 +798,21 @@ function applyCspSolution(state: SimulationState): SimulationState {
       `backtracks: ${solution.backtracks}`,
     type: 'info',
   });
+  /**
+   * Append per-leg trade-off lines AFTER the CSP-solved summary so the log reads
+   * top-down: high-level CSP decision first, then the route justification for each
+   * dispatched ambulance.
+   */
+  for (const leg of legTradeoffLogs) {
+    logLines.push(leg);
+  }
+  /**
+   * Then any "amb has no new assignment / target unreachable — heading home" lines,
+   * so the user can see why a unit appears to leave the dispatch list mid-mission.
+   */
+  for (const stall of stallReassignLogs) {
+    logLines.push(stall);
+  }
   if (abandonedVictimIds.length > 0) {
     logLines.push({
       id: generateId(),
@@ -685,6 +875,8 @@ function buildInitialState(): SimulationState {
     currentRouteAmb2: [],
     currentRouteTeam: [],
     cspSolution: null,
+    kitsBudget: 10,
+    kitsRemaining: 10,
     mlEvalSnapshot,
     victimMlEstimates: {},
     fuzzySnapshot: null,
@@ -719,18 +911,6 @@ function basePriorityForSeverity(s: SeverityLevel, survivalPct: number): number 
   const sevBase = s === 'critical' ? 0.85 : s === 'moderate' ? 0.55 : 0.3;
   const urgencyBoost = ((100 - survivalPct) / 100) * 0.12;
   return Math.min(1, sevBase + urgencyBoost);
-}
-
-function pickRandomIndices<T>(arr: T[], count: number, rng: () => number): number[] {
-  if (arr.length === 0 || count <= 0) return [];
-  const copy = arr.map((_, i) => i);
-  const picked: number[] = [];
-  for (let k = 0; k < count && copy.length > 0; k++) {
-    const idx = Math.floor(rng() * copy.length);
-    picked.push(copy[idx]);
-    copy.splice(idx, 1);
-  }
-  return picked;
 }
 
 function neighbors4(r: number, c: number): Array<{ row: number; col: number }> {
@@ -780,6 +960,43 @@ function advanceResourcesOneStep(state: SimulationState): Pick<SimulationState, 
           };
         })();
   return { ambulances, rescueTeam };
+}
+
+/**
+ * Run the active search algorithm and return both the path and its cost/risk metrics.
+ * `planRoute` below is a thin adapter that just keeps the path-only legacy shape; new
+ * code logging per-leg trade-offs should use this so it can show "cost=X risk=Y" lines.
+ */
+function planRouteResult(
+  state: SimulationState,
+  startRow: number,
+  startCol: number,
+  goalRow: number,
+  goalCol: number
+): { path: Array<{ row: number; col: number }>; pathCost: number; riskScore: number; found: boolean } {
+  const fuzzyEval = state.fuzzyLogicEnabled
+    ? (state.fuzzySnapshot ?? evaluateFuzzyRouting(state))
+    : null;
+  const result = runSearch(
+    state.searchAlgorithm,
+    state.grid,
+    startRow,
+    startCol,
+    goalRow,
+    goalCol,
+    state.objectivePriority,
+    fuzzyEval ? fuzzyEval.riskStepMultiplier : 1,
+    fuzzyEval ? fuzzyEval.heuristicRiskWeight : 1
+  );
+  if (result.found && result.path.length > 0) {
+    return {
+      path: result.path.map((p) => ({ ...p })),
+      pathCost: result.pathCost,
+      riskScore: result.riskScore,
+      found: true,
+    };
+  }
+  return { path: [], pathCost: 0, riskScore: 0, found: false };
 }
 
 /**
@@ -843,6 +1060,20 @@ function pickBestMc(
     return { mcId: 'MC1', dest: { ...MC1 }, route: route1 };
   }
   return { mcId: 'MC2', dest: { ...MC2 }, route: route2 };
+}
+
+/**
+ * True when a unit has reached a roster "home" cell: MC anchors, the rescue base tile,
+ * or any `mc1`/`mc2` typed cell. Without this, a bus that ends a path on `(0,0)` base
+ * or on an MC-adjacent road never flips `returning`→`idle`, so next-wave CSP never fires.
+ */
+function ambAtHomeTile(grid: GridCell[][], row: number, col: number): boolean {
+  if (!inBounds(row, col)) return false;
+  if ((row === MC1.row && col === MC1.col) || (row === MC2.row && col === MC2.col)) {
+    return true;
+  }
+  const t = grid[row][col].type;
+  return t === 'base' || t === 'mc1' || t === 'mc2';
 }
 
 function reduce(state: SimulationState, action: SimAction): SimulationState {
@@ -1324,6 +1555,12 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
       const newToasts: Toast[] = [];
       const tickLogs: DecisionLogEntry[] = [];
       /**
+       * Counts kits consumed during this single tick (1 per pickup). Applied to
+       * `state.kitsRemaining` at the bottom of the reducer so we never go below 0
+       * even if multiple rescues land in the same tick.
+       */
+      let kitsConsumedThisTick = 0;
+      /**
        * Survival decay: critical -0.30%/s, moderate -0.15%/s, minor -0.05%/s. If the rescue
        * team is riding with an ambulance, victims being transported by that ambulance get
        * HALF the decay rate (in-transit medical stabilization). Queued victims and victims
@@ -1379,30 +1616,52 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
         const amb = ambulances[i];
         if (amb.status !== 'en-route' || amb.assignedVictims.length === 0) continue;
 
-        const queue = [...amb.assignedVictims];
+        const initialIds = amb.assignedVictims;
+        const queue = [...initialIds];
         const droppedDead: string[] = [];
+        const droppedRescued: string[] = [];
         while (queue.length > 0) {
           const head = victimById.get(queue[0]);
           if (head && (head.status === 'lost' || head.status === 'rescued')) {
             if (head.status === 'lost') droppedDead.push(head.id);
+            else droppedRescued.push(head.id);
             queue.shift();
           } else {
             break;
           }
         }
-        if (droppedDead.length === 0) continue;
+        /** Previously we only replanned when `droppedDead` was non-empty, so heads that
+         *  were already `rescued` were shifted off in the while-loop but the ambulance
+         *  state was never updated — permanent stall. */
+        if (queue.length === initialIds.length && droppedDead.length === 0) continue;
 
-        tickLogs.push({
-          id: generateId(),
-          timestamp: formatTime(state.elapsedSeconds),
-          text:
-            `⚰ ${amb.id} dropping ${droppedDead.length === 1 ? 'deceased target' : 'deceased targets'} ` +
-            `{${droppedDead.join(', ')}} — survival depleted before pickup; ` +
-            (queue.length > 0
-              ? `replanning to next victim ${queue[0]}`
-              : 'returning to nearest MC'),
-          type: 'replan',
-        });
+        if (droppedRescued.length > 0 && droppedDead.length === 0) {
+          tickLogs.push({
+            id: generateId(),
+            timestamp: formatTime(state.elapsedSeconds),
+            text:
+              `🧹 ${amb.id} dropped stale queue head(s) {${droppedRescued.join(', ')}} ` +
+              `(already rescued) — ` +
+              (queue.length > 0
+                ? `replanning to next victim ${queue[0]}`
+                : 'returning to nearest MC'),
+            type: 'replan',
+          });
+        }
+
+        if (droppedDead.length > 0) {
+          tickLogs.push({
+            id: generateId(),
+            timestamp: formatTime(state.elapsedSeconds),
+            text:
+              `⚰ ${amb.id} dropping ${droppedDead.length === 1 ? 'deceased target' : 'deceased targets'} ` +
+              `{${droppedDead.join(', ')}} — survival depleted before pickup; ` +
+              (queue.length > 0
+                ? `replanning to next victim ${queue[0]}`
+                : 'returning to nearest MC'),
+            type: 'replan',
+          });
+        }
 
         if (queue.length > 0) {
           const nextV = victimById.get(queue[0]);
@@ -1506,20 +1765,54 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
             target.assignedTo = amb.id;
             target.eta = 0;
             target.rescuedAtSeconds = rescuedAt;
+            kitsConsumedThisTick += 1;
+            const kitsLeftAfter = Math.max(
+              0,
+              state.kitsRemaining - kitsConsumedThisTick
+            );
             newToasts.push({
               id: generateId(),
               type: 'success',
               message: `✅ ${target.id} rescued by ${amb.id}`,
               timestamp: Date.now(),
             });
+            /**
+             * Risk/survival snapshot at the moment of rescue. Pulls the live ML estimate
+             * (LR / MR / HR class + survival %) from `state.victimMlEstimates`, which is
+             * populated whenever `applyCspSolution` ran with an ML snapshot. Falls back
+             * to "ML —" when no snapshot exists yet (e.g. ML Studio never opened) so
+             * the rubric output ("survival/risk estimate at the time of rescue") is
+             * always present in the log even without ML.
+             */
+            const mlEst = state.victimMlEstimates[target.id];
+            const mlClassLabel = mlEst
+              ? `ML ${['LR', 'MR', 'HR'][mlEst.predictedClass]} ${mlEst.survivalEstimatePct}%`
+              : 'ML —';
             tickLogs.push({
               id: generateId(),
               timestamp: formatTime(state.elapsedSeconds),
               text:
                 `✅ ${target.id} rescued by ${amb.id} at ${formatTime(rescuedAt)} ` +
-                `(survival ${target.survivalPct.toFixed(1)}%)`,
+                `(survival ${target.survivalPct.toFixed(1)}% · ${mlClassLabel} · ` +
+                `1 kit used → ${kitsLeftAfter}/${state.kitsBudget} remain)`,
               type: 'success',
             });
+            if (kitsLeftAfter === 0) {
+              tickLogs.push({
+                id: generateId(),
+                timestamp: formatTime(state.elapsedSeconds),
+                text:
+                  `🧰 Medical kit supply exhausted (${state.kitsBudget}/${state.kitsBudget} used) — ` +
+                  `any further rescues will be blocked by the C4 kit constraint until resupply`,
+                type: 'event',
+              });
+              newToasts.push({
+                id: generateId(),
+                type: 'warning',
+                message: `🧰 Kits depleted — no more pickups`,
+                timestamp: Date.now(),
+              });
+            }
 
             const remaining = amb.assignedVictims.slice(1);
             if (remaining.length > 0) {
@@ -1671,6 +1964,7 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
         victims,
         ambulances,
         rescueTeam,
+        kitsRemaining: Math.max(0, state.kitsRemaining - kitsConsumedThisTick),
         currentRouteAmb1: ambulances.find((a) => a.id === 'Amb1')?.route ?? [],
         currentRouteAmb2: ambulances.find((a) => a.id === 'Amb2')?.route ?? [],
         currentRouteTeam: rescueTeam.route,

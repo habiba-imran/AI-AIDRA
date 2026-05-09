@@ -88,6 +88,8 @@ function App() {
               grid={state.grid}
               victims={state.victims}
               objectivePriority={state.objectivePriority}
+              localSearchResult={state.localSearchResult}
+              localSearchAlgorithm={state.localSearch}
               onRunSearch={actions.runSearchForAlgorithm}
               fuzzyRiskStep={
                 state.fuzzyLogicEnabled && state.fuzzySnapshot
@@ -105,6 +107,8 @@ function App() {
             <CspSolver
               cspSolution={state.cspSolution}
               victims={state.victims}
+              kitsRemaining={state.kitsRemaining}
+              kitsBudget={state.kitsBudget}
               onRunCsp={actions.runCsp}
             />
           )}

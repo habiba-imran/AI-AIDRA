@@ -26,7 +26,8 @@ function checkConstraints(
   amb2: string[],
   queued: string[],
   kitsUsed: number,
-  victims: Victim[]
+  victims: Victim[],
+  kitsAvailable: number
 ): { results: boolean[]; allSatisfied: boolean; checkedCount: number } {
   const results: boolean[] = [];
   let checkedCount = 0;
@@ -45,7 +46,12 @@ function checkConstraints(
   results.push(true);
   checkedCount++;
 
-  results.push(kitsUsed <= 10);
+  /**
+   * C4 — kit budget. Was a hardcoded `≤ 10` per wave; now respects the GLOBAL remaining
+   * supply so cumulative usage across waves is enforced (medical kits are a hard limit).
+   * Once `kitsAvailable === 0`, the only legal placement is the wait queue.
+   */
+  results.push(kitsUsed <= kitsAvailable);
   checkedCount++;
 
   /**
@@ -150,7 +156,7 @@ function kitsFor(amb1: string[], amb2: string[]): number {
  * Ties go to whichever ambulance has more victims (stabilizing more passengers). Returns
  * `null` only when neither ambulance has any pickup this cycle.
  */
-function deriveTeamRidesWith(
+export function deriveTeamRidesWith(
   amb1Ids: string[],
   amb2Ids: string[],
   victims: Victim[]
@@ -175,7 +181,10 @@ function deriveTeamRidesWith(
   return t1 > t2 ? 'Amb1' : 'Amb2';
 }
 
-function solveWithHeuristics(victims: Victim[]): {
+function solveWithHeuristics(
+  victims: Victim[],
+  kitsAvailable: number
+): {
   amb1: string[];
   amb2: string[];
   queued: string[];
@@ -221,7 +230,14 @@ function solveWithHeuristics(victims: Victim[]): {
       if (!next) continue;
 
       const kits = kitsFor(next.amb1, next.amb2);
-      const check = checkConstraints(next.amb1, next.amb2, next.queued, kits, victims);
+      const check = checkConstraints(
+        next.amb1,
+        next.amb2,
+        next.queued,
+        kits,
+        victims,
+        kitsAvailable
+      );
       constraintsChecked += check.checkedCount;
 
       if (!check.allSatisfied) {
@@ -285,7 +301,10 @@ function solveWithHeuristics(victims: Victim[]): {
   };
 }
 
-function solveWithoutHeuristics(victims: Victim[]): {
+function solveWithoutHeuristics(
+  victims: Victim[],
+  kitsAvailable: number
+): {
   backtracks: number;
   nodesExplored: number;
   constraintsChecked: number;
@@ -307,7 +326,14 @@ function solveWithoutHeuristics(victims: Victim[]): {
       const next = tryAssign(res, v.id, amb1, amb2, queued);
       if (!next) continue;
       const kits = kitsFor(next.amb1, next.amb2);
-      const check = checkConstraints(next.amb1, next.amb2, next.queued, kits, victims);
+      const check = checkConstraints(
+        next.amb1,
+        next.amb2,
+        next.queued,
+        kits,
+        victims,
+        kitsAvailable
+      );
       constraintsChecked += check.checkedCount;
       if (!check.allSatisfied) {
         backtracks += 2;
@@ -330,7 +356,10 @@ function solveWithoutHeuristics(victims: Victim[]): {
   };
 }
 
-function solveWithMRVOnly(victims: Victim[]): {
+function solveWithMRVOnly(
+  victims: Victim[],
+  kitsAvailable: number
+): {
   backtracks: number;
   nodesExplored: number;
   constraintsChecked: number;
@@ -352,7 +381,14 @@ function solveWithMRVOnly(victims: Victim[]): {
       const next = tryAssign(res, v.id, amb1, amb2, queued);
       if (!next) continue;
       const kits = kitsFor(next.amb1, next.amb2);
-      const check = checkConstraints(next.amb1, next.amb2, next.queued, kits, victims);
+      const check = checkConstraints(
+        next.amb1,
+        next.amb2,
+        next.queued,
+        kits,
+        victims,
+        kitsAvailable
+      );
       constraintsChecked += check.checkedCount;
       if (!check.allSatisfied) {
         backtracks++;
@@ -381,7 +417,9 @@ function buildConstraints(
   queued: string[],
   teamRidesWith: 'Amb1' | 'Amb2' | null,
   kitsUsed: number,
-  victims: Victim[]
+  victims: Victim[],
+  kitsAvailable: number,
+  kitsBudget: number
 ): CspConstraint[] {
   const ambSlotsFree = (2 - amb1.length) + (2 - amb2.length);
   const criticalQueued = queued.filter((id) => {
@@ -402,7 +440,14 @@ function buildConstraints(
       // teamRidesWith is single-valued by construction; this is always satisfied.
       satisfied: teamRidesWith == null || teamRidesWith === 'Amb1' || teamRidesWith === 'Amb2',
     },
-    { id: 'C4', formula: 'Total kits ≤ 10', satisfied: kitsUsed <= 10 },
+    {
+      id: 'C4',
+      formula:
+        kitsAvailable < kitsBudget
+          ? `Wave kits ≤ ${kitsAvailable} remaining (of ${kitsBudget})`
+          : `Total kits ≤ ${kitsBudget}`,
+      satisfied: kitsUsed <= kitsAvailable,
+    },
     { id: 'C5', formula: 'Critical victims never queued while slots exist', satisfied: c5Ok },
     { id: 'C6', formula: 'No duplicate victim assignments', satisfied: noDuplicates },
   ];
@@ -415,7 +460,9 @@ function buildVariables(
   teamRidesWith: 'Amb1' | 'Amb2' | null,
   kitsUsed: number,
   victims: Victim[],
-  constraints: CspConstraint[]
+  constraints: CspConstraint[],
+  kitsAvailable: number,
+  kitsBudget: number
 ): CspVariable[] {
   const allIds = victims.map((v) => v.id);
   const c1 = constraints[0]?.satisfied ?? true;
@@ -465,21 +512,21 @@ function buildVariables(
       id: 'kits',
       icon: '🧰',
       label: 'Kit_Allocation',
-      domain: ['0', '1', '2', '3', '4'],
-      maxInfo: 'Total limit: ≤ 10 kits (1 per pickup)',
+      domain: Array.from({ length: kitsBudget + 1 }, (_, i) => String(i)),
+      maxInfo: `Limit: ≤ ${kitsBudget} total · ${kitsAvailable} remaining (1 kit per pickup)`,
       current: [String(kitsUsed)],
       satisfied: c4,
     },
   ];
 }
 
-function buildPerfComparison(victims: Victim[]): CspPerfRow[] {
+function buildPerfComparison(victims: Victim[], kitsAvailable: number): CspPerfRow[] {
   const t1 = performance.now();
-  const noHeur = solveWithoutHeuristics(victims);
+  const noHeur = solveWithoutHeuristics(victims, kitsAvailable);
   const t2 = performance.now();
-  const mrvOnly = solveWithMRVOnly(victims);
+  const mrvOnly = solveWithMRVOnly(victims, kitsAvailable);
   const t3 = performance.now();
-  const withHeur = solveWithHeuristics(victims);
+  const withHeur = solveWithHeuristics(victims, kitsAvailable);
   const t4 = performance.now();
 
   return [
@@ -510,9 +557,21 @@ function buildPerfComparison(victims: Victim[]): CspPerfRow[] {
   ];
 }
 
-export function solveCsp(victims: Victim[]): CspSolution {
+/**
+ * Solve victim → resource assignment under hard constraints.
+ *
+ * `kitsAvailable` is the global remaining kit count from `SimulationState.kitsRemaining`
+ * (defaults to `kitsBudget` for the very first solve and standalone test runs). The CSP
+ * will refuse to assign more victims to ambulances than there are kits left, queueing the
+ * surplus. `kitsBudget` is the original supply (= 10), used only for display formulas.
+ */
+export function solveCsp(
+  victims: Victim[],
+  kitsAvailable = 10,
+  kitsBudget = 10
+): CspSolution {
   const startTime = performance.now();
-  const result = solveWithHeuristics(victims);
+  const result = solveWithHeuristics(victims, kitsAvailable);
   const teamRidesWith = deriveTeamRidesWith(result.amb1, result.amb2, victims);
   const kitsUsed = kitsFor(result.amb1, result.amb2);
   const constraints = buildConstraints(
@@ -521,7 +580,9 @@ export function solveCsp(victims: Victim[]): CspSolution {
     result.queued,
     teamRidesWith,
     kitsUsed,
-    victims
+    victims,
+    kitsAvailable,
+    kitsBudget
   );
   const variables = buildVariables(
     result.amb1,
@@ -530,10 +591,12 @@ export function solveCsp(victims: Victim[]): CspSolution {
     teamRidesWith,
     kitsUsed,
     victims,
-    constraints
+    constraints,
+    kitsAvailable,
+    kitsBudget
   );
   const allSatisfied = constraints.every((c) => c.satisfied);
-  const perfComparison = buildPerfComparison(victims).map((row, i) =>
+  const perfComparison = buildPerfComparison(victims, kitsAvailable).map((row, i) =>
     i === 2
       ? {
           ...row,
