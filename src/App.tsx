@@ -12,11 +12,9 @@ import MlStudio from './components/MlStudio';
 import Analytics from './components/Analytics';
 import { type TabId } from './data/placeholder';
 import { useSimulation } from './engine/simulationEngine';
-import { useTimer } from './engine/useTimer';
 
 function App() {
   const { state, actions } = useSimulation();
-  useTimer(state.running, state.paused, state.speed, actions.onTick);
   const [activeTab, setActiveTab] = useState<TabId>('live-sim');
 
   return (
@@ -25,19 +23,22 @@ function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         elapsedSeconds={state.elapsedSeconds}
-        running={state.running}
         toastCount={state.toasts.length}
       />
 
       <div className="flex-1 flex flex-col min-h-0">
         <div className="flex-1 min-h-0 overflow-hidden animate-fade-in flex flex-col" key={activeTab}>
           {activeTab === 'live-sim' && (
-            <div className="flex-1 flex min-h-0 min-w-0">
-              <LeftPanel state={state} actions={actions} />
-              <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-                <LiveSimControlBar state={state} actions={actions} />
-                <div className="flex-1 min-h-0 min-w-0 flex flex-row items-stretch gap-1 pl-1 pr-0 pb-1">
-                  <div className="shrink-0 min-w-0 min-h-0 flex items-start justify-start">
+            <div className="flex flex-1 min-h-0 min-w-0 gap-2 px-2 pb-2 pt-1">
+              <aside className="sticky top-0 z-20 flex h-full min-h-0 w-[clamp(220px,19vw,280px)] shrink-0 flex-col overflow-hidden rounded-xl border border-[#1e293b]/80 bg-[#0f172a] shadow-[0_0_0_1px_rgba(15,23,42,0.4)]">
+                <LiveSimControlBar actions={actions} />
+                <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
+                  <LeftPanel state={state} actions={actions} variant="embedded" />
+                </div>
+              </aside>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <div className="flex flex-1 min-h-0 min-w-0 flex-row items-stretch gap-1 pr-0 pb-0 pt-0">
+                  <div className="flex flex-1 min-w-0 min-h-0 items-stretch justify-center">
                     <CenterPanel
                       grid={state.grid}
                       victims={state.victims}
@@ -50,7 +51,7 @@ function App() {
                       routeTeam={state.currentRouteTeam}
                     />
                   </div>
-                  <div className="flex flex-1 min-w-0 min-h-0 rounded-r-xl overflow-hidden border border-[#1e293b] bg-[#0a0f1e]">
+                  <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-r-xl border border-[#1e293b] bg-[#0a0f1e]">
                     <BottomBar
                       layout="side"
                       fuzzyLogicEnabled={state.fuzzyLogicEnabled}
@@ -58,6 +59,21 @@ function App() {
                       mlModel={state.mlModel}
                       mlEvalSnapshot={state.mlEvalSnapshot}
                       kpis={state.kpis}
+                      liveSimAiSettings={{
+                        searchAlgorithm: state.searchAlgorithm,
+                        localSearch: state.localSearch,
+                        mlModel: state.mlModel,
+                        objectivePriority: state.objectivePriority,
+                        fuzzyLogicEnabled: state.fuzzyLogicEnabled,
+                        actions: {
+                          setSearchAlgorithm: actions.setSearchAlgorithm,
+                          setLocalSearch: actions.setLocalSearch,
+                          setMLModel: actions.setMLModel,
+                          setObjectivePriority: actions.setObjectivePriority,
+                          toggleFuzzyLogic: actions.toggleFuzzyLogic,
+                        },
+                      }}
+                      onLiveSimReplan={actions.applyAndReplan}
                     />
                     <RightPanel state={state} actions={actions} />
                   </div>

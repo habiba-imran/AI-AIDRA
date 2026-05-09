@@ -10,7 +10,6 @@ interface NavbarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   elapsedSeconds: number;
-  running: boolean;
   toastCount: number;
 }
 
@@ -18,7 +17,6 @@ export default function Navbar({
   activeTab,
   onTabChange,
   elapsedSeconds,
-  running,
   toastCount,
 }: NavbarProps) {
   return (
@@ -59,12 +57,6 @@ export default function Navbar({
       </div>
 
       <div className="flex items-center gap-4 shrink-0">
-        {running ? (
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse-dot" />
-            <span className="text-red-500 text-[11px] font-semibold">LIVE</span>
-          </div>
-        ) : null}
         <span className="font-mono-display text-[#22c55e] text-[13px] font-medium">{formatElapsed(elapsedSeconds)}</span>
         <div className="relative cursor-pointer">
           <Bell className="w-5 h-5 text-[#94a3b8] hover:text-[#f1f5f9] transition-colors" />

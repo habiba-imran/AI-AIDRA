@@ -61,11 +61,13 @@ function cspFirstLegHint(state: SimulationState): string | null {
   if (!sol) return null;
   const f1 = sol.amb1Victims[0] ?? null;
   const f2 = sol.amb2Victims[0] ?? null;
-  const team = sol.teamVictim;
+  const queued = sol.queuedVictims;
+  const ridesWith = sol.teamRidesWith;
   const bits: string[] = [];
   if (f1) bits.push(`Amb1 first: ${f1}`);
   if (f2) bits.push(`Amb2 first: ${f2}`);
-  if (team) bits.push(`Team: ${team}`);
+  if (ridesWith) bits.push(`Team rides ${ridesWith}`);
+  if (queued.length > 0) bits.push(`Queued: ${queued.join(',')}`);
   if (bits.length === 0) return null;
   return `Last CSP allocation — ${bits.join(' · ')}.`;
 }

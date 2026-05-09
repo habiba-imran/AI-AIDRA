@@ -17,8 +17,9 @@ const HIDDEN = 16;
 const NUM_CLASSES = 3;
 const K_CANDIDATES = [1, 2, 3, 5, 7, 10] as const;
 const EPS_VAR = 1e-6;
-const MLP_EPOCHS = 80;
-const MLP_LR = 0.08;
+const MLP_EPOCHS = 100;
+const MLP_LR = 0.035;
+const MLP_LR_DECAY = 0.992;
 
 function mulberry32(seed: number): () => number {
   return function () {
@@ -190,6 +191,20 @@ function relu(v: number[]): number[] {
   return v.map((z) => Math.max(0, z));
 }
 
+/** Glorot/Xavier uniform bounds for matrix [rows x cols] connecting fanIn→fanOut */
+function xavierMatrix(
+  rows: number,
+  cols: number,
+  fanIn: number,
+  fanOut: number,
+  rng: () => number
+): number[][] {
+  const limit = Math.sqrt(6 / Math.max(1, fanIn + fanOut));
+  return Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, () => (rng() * 2 - 1) * limit)
+  );
+}
+
 function trainMlp(
   trainX: number[][],
   trainY: number[],
@@ -198,23 +213,27 @@ function trainMlp(
   const inD = FEATURE_DIM;
   const h = HIDDEN;
   const outD = NUM_CLASSES;
-  const w1: number[][] = Array.from({ length: h }, () =>
-    Array.from({ length: inD }, () => (rng() - 0.5) * 0.4)
-  );
-  const b1: number[] = Array.from({ length: h }, () => (rng() - 0.5) * 0.1);
-  const w2: number[][] = Array.from({ length: outD }, () =>
-    Array.from({ length: h }, () => (rng() - 0.5) * 0.35)
-  );
-  const b2: number[] = Array.from({ length: outD }, () => (rng() - 0.5) * 0.1);
+  const w1 = xavierMatrix(h, inD, inD, h, rng);
+  const b1: number[] = new Array(h).fill(0);
+  const w2 = xavierMatrix(outD, h, h, outD, rng);
+  const b2: number[] = new Array(outD).fill(0);
 
   const oneHot = (c: number): number[] =>
     [0, 0, 0].map((_, j) => (j === c ? 1 : 0));
 
   const lossCurve: number[] = [];
+  let lr = MLP_LR;
 
   for (let ep = 0; ep < MLP_EPOCHS; ep++) {
     let lossAcc = 0;
-    for (let s = 0; s < trainX.length; s++) {
+    const order = trainX.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const t = order[i];
+      order[i] = order[j];
+      order[j] = t;
+    }
+    for (const s of order) {
       const x = trainX[s];
       const y = oneHot(trainY[s]);
       const z1 = matVec(w1, x).map((v, i) => v + b1[i]);
@@ -236,15 +255,16 @@ function trainMlp(
       const dW1 = dA1.map((g) => x.map((xi) => g * xi));
       const db1 = [...dA1];
       for (let k = 0; k < outD; k++) {
-        for (let j = 0; j < h; j++) w2[k][j] -= MLP_LR * dW2[k][j];
-        b2[k] -= MLP_LR * db2[k];
+        for (let j = 0; j < h; j++) w2[k][j] -= lr * dW2[k][j];
+        b2[k] -= lr * db2[k];
       }
       for (let j = 0; j < h; j++) {
-        for (let i = 0; i < inD; i++) w1[j][i] -= MLP_LR * dW1[j][i];
-        b1[j] -= MLP_LR * db1[j];
+        for (let i = 0; i < inD; i++) w1[j][i] -= lr * dW1[j][i];
+        b1[j] -= lr * db1[j];
       }
     }
     lossCurve.push(lossAcc / trainX.length);
+    lr *= MLP_LR_DECAY;
   }
 
   return { store: { w1, b1, w2, b2 }, lossCurve };

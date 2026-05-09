@@ -130,8 +130,8 @@ export default function RightPanel({ state, actions }: RightPanelProps) {
   }, [decisionLog]);
 
   return (
-    <div className="flex-[1.42] xl:flex-[1.22] min-w-0 h-full min-h-0 flex flex-col bg-[#0f172a] p-2 gap-2">
-      <div className="shrink-0 min-w-0">
+    <div className="flex-[1.42] xl:flex-[1.22] min-w-0 h-full min-h-0 flex flex-col bg-[#0f172a] p-2 gap-2 overflow-hidden">
+      <div className="shrink-0 min-w-0 max-h-[min(220px,32dvh)] overflow-y-auto overscroll-contain">
         <SectionLabel>Victims</SectionLabel>
         <table className="w-full text-[11px] table-fixed">
           <thead>
@@ -164,7 +164,7 @@ export default function RightPanel({ state, actions }: RightPanelProps) {
         </table>
       </div>
 
-      <div className="shrink-0 card-glass p-2.5 rounded-md border-glow-left-purple min-w-0">
+      <div className="shrink-0 min-h-0 max-h-[min(240px,34dvh)] overflow-y-auto overscroll-contain card-glass p-2.5 rounded-md border-glow-left-purple min-w-0">
         <SectionLabel>Priority</SectionLabel>
         <div className="text-[11px] text-[#e2e8f0] leading-snug space-y-1.5">
           {priorityReasoning.hasQueue && priorityReasoning.primary ? (
@@ -201,7 +201,7 @@ export default function RightPanel({ state, actions }: RightPanelProps) {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col gap-1 min-w-0">
+      <div className="flex-1 min-h-[120px] flex flex-col gap-1 min-w-0 overflow-hidden">
         <SectionLabel
           action={
             <div className="flex items-center gap-1.5 shrink-0">
@@ -226,7 +226,7 @@ export default function RightPanel({ state, actions }: RightPanelProps) {
         </SectionLabel>
         <div
           ref={logScrollRef}
-          className="flex-1 min-h-[64px] overflow-y-auto overscroll-contain bg-[#020817] rounded-md border border-[#1e293b] p-2.5 font-mono-display text-[11px] space-y-1 leading-snug text-[#e2e8f0]"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-[#020817] rounded-md border border-[#1e293b] p-2.5 font-mono-display text-[11px] space-y-1 leading-snug text-[#e2e8f0] [scrollbar-gutter:stable]"
         >
           {decisionLog.map((entry, i) => (
             <div

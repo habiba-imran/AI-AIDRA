@@ -208,6 +208,7 @@ export function generateInitialRescueTeam(): RescueTeam {
     label: 'Rescue Team Alpha',
     status: 'idle',
     assignedVictim: null,
+    ridesWith: null,
     currentRow: 0,
     currentCol: 0,
     route: [],

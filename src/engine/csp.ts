@@ -9,10 +9,22 @@ import type {
   Victim,
 } from '../types';
 
+/**
+ * Resource model (post-redesign):
+ *   - Amb1 / Amb2 each carry up to 2 victims (hard CSP constraint).
+ *   - Queue is a "wait for next wave" placement for victims that didn't fit; survival keeps
+ *     decaying while they wait. Critical victims may NOT be queued while ambulance space exists.
+ *   - The rescue team is NOT a pickup unit anymore. After CSP solves the victim → ambulance
+ *     mapping, we derive `teamRidesWith` ∈ {Amb1, Amb2, null} — the ambulance carrying the
+ *     highest-priority assigned victim. The team rides along and halves survival decay for
+ *     that ambulance's passengers (in-transit medical stabilization). This is enforced in the
+ *     simulation engine's TICK reducer, not here in the CSP solver.
+ */
+
 function checkConstraints(
   amb1: string[],
   amb2: string[],
-  team: string | null,
+  queued: string[],
   kitsUsed: number,
   victims: Victim[]
 ): { results: boolean[]; allSatisfied: boolean; checkedCount: number } {
@@ -25,21 +37,32 @@ function checkConstraints(
   results.push(amb2.length <= 2);
   checkedCount++;
 
-  const teamCount = team ? 1 : 0;
-  results.push(teamCount <= 1);
+  /**
+   * C3 in the new model: "team rides with at most one ambulance" — trivially satisfiable
+   * post-CSP since `teamRidesWith` is a single-valued derived field, but we keep the slot
+   * to preserve the 6-row constraint matrix the UI expects.
+   */
+  results.push(true);
   checkedCount++;
 
   results.push(kitsUsed <= 10);
   checkedCount++;
 
-  const assignedIds = [...amb1, ...amb2, ...(team ? [team] : [])];
-  const criticalVictims = victims.filter((v) => v.severity === 'critical');
-  const criticalAssigned = criticalVictims.every((v) => assignedIds.includes(v.id));
-  const allResourcesUsed = amb1.length + amb2.length + (team ? 1 : 0) >= Math.min(victims.length, 5);
-  results.push(!allResourcesUsed || criticalAssigned);
+  /**
+   * C5: critical victims must NOT be in the wait queue while ambulance capacity is available.
+   * If both ambulances are already full, queueing a remaining critical is the only legal move
+   * and counts as satisfied (true triage decision, not a violation).
+   */
+  const ambSlotsFree = (2 - amb1.length) + (2 - amb2.length);
+  const criticalQueued = queued.filter((id) => {
+    const v = victims.find((x) => x.id === id);
+    return v?.severity === 'critical';
+  });
+  const c5Ok = ambSlotsFree === 0 || criticalQueued.length === 0;
+  results.push(c5Ok);
   checkedCount++;
 
-  const allAssigned = [...amb1, ...amb2, ...(team ? [team] : [])];
+  const allAssigned = [...amb1, ...amb2, ...queued];
   const uniqueAssigned = new Set(allAssigned).size;
   results.push(uniqueAssigned === allAssigned.length);
   checkedCount++;
@@ -66,8 +89,12 @@ function sortByMRV(victims: Victim[]): Victim[] {
   return [...victims].sort((a, b) => getPriorityScore(b) - getPriorityScore(a));
 }
 
-function getResourceOrder(): string[] {
-  return ['Amb1', 'Amb2', 'Team'];
+/**
+ * The CSP variable order — Queue is tried last so the solver only resorts to deferring a
+ * victim when no ambulance has capacity.
+ */
+function getResourceOrder(): Array<'Amb1' | 'Amb2' | 'Queue'> {
+  return ['Amb1', 'Amb2', 'Queue'];
 }
 
 function makeNode(
@@ -92,32 +119,66 @@ function makeNode(
 }
 
 function tryAssign(
-  res: string,
+  res: 'Amb1' | 'Amb2' | 'Queue',
   victimId: string,
   amb1: string[],
   amb2: string[],
-  team: string | null
-): { amb1: string[]; amb2: string[]; team: string | null } | null {
+  queued: string[]
+): { amb1: string[]; amb2: string[]; queued: string[] } | null {
   if (res === 'Amb1' && amb1.length < 2) {
-    return { amb1: [...amb1, victimId], amb2, team };
+    return { amb1: [...amb1, victimId], amb2, queued };
   }
   if (res === 'Amb2' && amb2.length < 2) {
-    return { amb1, amb2: [...amb2, victimId], team };
+    return { amb1, amb2: [...amb2, victimId], queued };
   }
-  if (res === 'Team' && team === null) {
-    return { amb1, amb2, team: victimId };
+  if (res === 'Queue') {
+    return { amb1, amb2, queued: [...queued, victimId] };
   }
   return null;
 }
 
-function kitsFor(amb1: string[], amb2: string[], team: string | null): number {
-  return amb1.length + amb2.length + (team ? 1 : 0);
+/**
+ * Kits are consumed only by victims actually loaded onto an ambulance (queued ones consume
+ * none until they are picked up in a later wave).
+ */
+function kitsFor(amb1: string[], amb2: string[]): number {
+  return amb1.length + amb2.length;
+}
+
+/**
+ * Choose which ambulance the team rides with: the one carrying the highest-priority victim.
+ * Ties go to whichever ambulance has more victims (stabilizing more passengers). Returns
+ * `null` only when neither ambulance has any pickup this cycle.
+ */
+function deriveTeamRidesWith(
+  amb1Ids: string[],
+  amb2Ids: string[],
+  victims: Victim[]
+): 'Amb1' | 'Amb2' | null {
+  const byId = new Map(victims.map((v) => [v.id, v] as const));
+  const top = (ids: string[]): number => {
+    let best = -Infinity;
+    for (const id of ids) {
+      const v = byId.get(id);
+      if (!v) continue;
+      const s = getPriorityScore(v);
+      if (s > best) best = s;
+    }
+    return best;
+  };
+  const t1 = top(amb1Ids);
+  const t2 = top(amb2Ids);
+  if (t1 === -Infinity && t2 === -Infinity) return null;
+  if (t1 === t2) {
+    return amb1Ids.length >= amb2Ids.length ? 'Amb1' : 'Amb2';
+  }
+  return t1 > t2 ? 'Amb1' : 'Amb2';
 }
 
 function solveWithHeuristics(victims: Victim[]): {
   amb1: string[];
   amb2: string[];
-  team: string | null;
+  queued: string[];
   backtracks: number;
   nodesExplored: number;
   constraintsChecked: number;
@@ -133,13 +194,13 @@ function solveWithHeuristics(victims: Victim[]): {
 
   let bestAmb1: string[] = [];
   let bestAmb2: string[] = [];
-  let bestTeam: string | null = null;
+  let bestQueued: string[] = [];
 
   function dfs(
     index: number,
     amb1: string[],
     amb2: string[],
-    team: string | null,
+    queued: string[],
     parent: CspTreeNode
   ): boolean {
     if (index >= sorted.length) {
@@ -147,7 +208,7 @@ function solveWithHeuristics(victims: Victim[]): {
       parent.children.push(sol);
       bestAmb1 = amb1;
       bestAmb2 = amb2;
-      bestTeam = team;
+      bestQueued = queued;
       return true;
     }
 
@@ -156,11 +217,11 @@ function solveWithHeuristics(victims: Victim[]): {
 
     for (const res of getResourceOrder()) {
       nodesExplored++;
-      const next = tryAssign(res, victimId, amb1, amb2, team);
+      const next = tryAssign(res, victimId, amb1, amb2, queued);
       if (!next) continue;
 
-      const kits = kitsFor(next.amb1, next.amb2, next.team);
-      const check = checkConstraints(next.amb1, next.amb2, next.team, kits, victims);
+      const kits = kitsFor(next.amb1, next.amb2);
+      const check = checkConstraints(next.amb1, next.amb2, next.queued, kits, victims);
       constraintsChecked += check.checkedCount;
 
       if (!check.allSatisfied) {
@@ -190,7 +251,7 @@ function solveWithHeuristics(victims: Victim[]): {
       parent.children.push(node);
 
       const valueArr =
-        res === 'Team' ? [victimId] : res === 'Amb1' ? next.amb1 : next.amb2;
+        res === 'Queue' ? next.queued : res === 'Amb1' ? next.amb1 : next.amb2;
       steps.push({
         variable: res,
         value: valueArr,
@@ -198,7 +259,7 @@ function solveWithHeuristics(victims: Victim[]): {
         constraintsChecked: check.checkedCount,
       });
 
-      if (dfs(index + 1, next.amb1, next.amb2, next.team, node)) {
+      if (dfs(index + 1, next.amb1, next.amb2, next.queued, node)) {
         return true;
       }
 
@@ -210,17 +271,12 @@ function solveWithHeuristics(victims: Victim[]): {
     return false;
   }
 
-  dfs(0, [], [], null, root);
-
-  if (steps.length === 0 || bestAmb1.length + bestAmb2.length + (bestTeam ? 1 : 0) < victims.length) {
-    const fail = makeNode('csp-fail', '⚠ NO COMPLETE ASSIGNMENT', sorted.length + 1, false, true, false, false);
-    root.children.push(fail);
-  }
+  dfs(0, [], [], [], root);
 
   return {
     amb1: bestAmb1,
     amb2: bestAmb2,
-    team: bestTeam,
+    queued: bestQueued,
     backtracks,
     nodesExplored,
     constraintsChecked,
@@ -242,16 +298,16 @@ function solveWithoutHeuristics(victims: Victim[]): {
   let constraintsChecked = 0;
   let amb1: string[] = [];
   let amb2: string[] = [];
-  let team: string | null = null;
+  let queued: string[] = [];
 
   for (const v of order) {
     nodesExplored++;
     let placed = false;
-    for (const res of ['Amb1', 'Amb2', 'Team']) {
-      const next = tryAssign(res, v.id, amb1, amb2, team);
+    for (const res of getResourceOrder()) {
+      const next = tryAssign(res, v.id, amb1, amb2, queued);
       if (!next) continue;
-      const kits = kitsFor(next.amb1, next.amb2, next.team);
-      const check = checkConstraints(next.amb1, next.amb2, next.team, kits, victims);
+      const kits = kitsFor(next.amb1, next.amb2);
+      const check = checkConstraints(next.amb1, next.amb2, next.queued, kits, victims);
       constraintsChecked += check.checkedCount;
       if (!check.allSatisfied) {
         backtracks += 2;
@@ -259,7 +315,7 @@ function solveWithoutHeuristics(victims: Victim[]): {
       }
       amb1 = next.amb1;
       amb2 = next.amb2;
-      team = next.team;
+      queued = next.queued;
       placed = true;
       break;
     }
@@ -287,16 +343,16 @@ function solveWithMRVOnly(victims: Victim[]): {
   let constraintsChecked = 0;
   let amb1: string[] = [];
   let amb2: string[] = [];
-  let team: string | null = null;
+  let queued: string[] = [];
 
   for (const v of sorted) {
     nodesExplored++;
     let placed = false;
-    for (const res of ['Amb1', 'Amb2', 'Team']) {
-      const next = tryAssign(res, v.id, amb1, amb2, team);
+    for (const res of getResourceOrder()) {
+      const next = tryAssign(res, v.id, amb1, amb2, queued);
       if (!next) continue;
-      const kits = kitsFor(next.amb1, next.amb2, next.team);
-      const check = checkConstraints(next.amb1, next.amb2, next.team, kits, victims);
+      const kits = kitsFor(next.amb1, next.amb2);
+      const check = checkConstraints(next.amb1, next.amb2, next.queued, kits, victims);
       constraintsChecked += check.checkedCount;
       if (!check.allSatisfied) {
         backtracks++;
@@ -304,7 +360,7 @@ function solveWithMRVOnly(victims: Victim[]): {
       }
       amb1 = next.amb1;
       amb2 = next.amb2;
-      team = next.team;
+      queued = next.queued;
       placed = true;
       break;
     }
@@ -322,25 +378,32 @@ function solveWithMRVOnly(victims: Victim[]): {
 function buildConstraints(
   amb1: string[],
   amb2: string[],
-  team: string | null,
+  queued: string[],
+  teamRidesWith: 'Amb1' | 'Amb2' | null,
   kitsUsed: number,
   victims: Victim[]
 ): CspConstraint[] {
-  const assignedIds = [...amb1, ...amb2, ...(team ? [team] : [])];
-  const criticalVictims = victims.filter((v) => v.severity === 'critical');
-  const criticalAssigned = criticalVictims.every((v) => assignedIds.includes(v.id));
-  const allResourcesUsed =
-    amb1.length + amb2.length + (team ? 1 : 0) >= Math.min(victims.length, 5);
-  const c5Ok = !allResourcesUsed || criticalAssigned;
-  const allAssigned = assignedIds;
+  const ambSlotsFree = (2 - amb1.length) + (2 - amb2.length);
+  const criticalQueued = queued.filter((id) => {
+    const v = victims.find((x) => x.id === id);
+    return v?.severity === 'critical';
+  });
+  const c5Ok = ambSlotsFree === 0 || criticalQueued.length === 0;
+
+  const allAssigned = [...amb1, ...amb2, ...queued];
   const noDuplicates = new Set(allAssigned).size === allAssigned.length;
 
   return [
     { id: 'C1', formula: '|Amb1_victims| ≤ 2', satisfied: amb1.length <= 2 },
     { id: 'C2', formula: '|Amb2_victims| ≤ 2', satisfied: amb2.length <= 2 },
-    { id: 'C3', formula: 'Team services 1 location/time', satisfied: (team ? 1 : 0) <= 1 },
+    {
+      id: 'C3',
+      formula: 'Team rides with ≤ 1 ambulance',
+      // teamRidesWith is single-valued by construction; this is always satisfied.
+      satisfied: teamRidesWith == null || teamRidesWith === 'Amb1' || teamRidesWith === 'Amb2',
+    },
     { id: 'C4', formula: 'Total kits ≤ 10', satisfied: kitsUsed <= 10 },
-    { id: 'C5', formula: 'Critical victims assigned first', satisfied: c5Ok },
+    { id: 'C5', formula: 'Critical victims never queued while slots exist', satisfied: c5Ok },
     { id: 'C6', formula: 'No duplicate victim assignments', satisfied: noDuplicates },
   ];
 }
@@ -348,7 +411,8 @@ function buildConstraints(
 function buildVariables(
   amb1: string[],
   amb2: string[],
-  team: string | null,
+  queued: string[],
+  teamRidesWith: 'Amb1' | 'Amb2' | null,
   kitsUsed: number,
   victims: Victim[],
   constraints: CspConstraint[]
@@ -358,6 +422,7 @@ function buildVariables(
   const c2 = constraints[1]?.satisfied ?? true;
   const c3 = constraints[2]?.satisfied ?? true;
   const c4 = constraints[3]?.satisfied ?? true;
+  const c5 = constraints[4]?.satisfied ?? true;
 
   return [
     {
@@ -379,20 +444,29 @@ function buildVariables(
       satisfied: c2,
     },
     {
+      id: 'queue',
+      icon: '⏳',
+      label: 'Wait_Queue',
+      domain: allIds,
+      maxInfo: 'Critical victims may not be queued while a slot is free',
+      current: queued,
+      satisfied: c5,
+    },
+    {
       id: 'team',
       icon: '👷',
-      label: 'Team_Assignment',
-      domain: allIds,
-      maxInfo: 'Max: 1 location at a time',
-      current: team ? [team] : [],
+      label: 'Team_RidesWith',
+      domain: ['Amb1', 'Amb2'],
+      maxInfo: 'Stabilizes (½ decay) for the ambulance it rides with',
+      current: teamRidesWith ? [teamRidesWith] : [],
       satisfied: c3,
     },
     {
       id: 'kits',
       icon: '🧰',
       label: 'Kit_Allocation',
-      domain: ['0', '1', '2', '3'],
-      maxInfo: 'Total limit: ≤ 10 kits',
+      domain: ['0', '1', '2', '3', '4'],
+      maxInfo: 'Total limit: ≤ 10 kits (1 per pickup)',
       current: [String(kitsUsed)],
       satisfied: c4,
     },
@@ -439,12 +513,21 @@ function buildPerfComparison(victims: Victim[]): CspPerfRow[] {
 export function solveCsp(victims: Victim[]): CspSolution {
   const startTime = performance.now();
   const result = solveWithHeuristics(victims);
-  const kitsUsed = kitsFor(result.amb1, result.amb2, result.team);
-  const constraints = buildConstraints(result.amb1, result.amb2, result.team, kitsUsed, victims);
+  const teamRidesWith = deriveTeamRidesWith(result.amb1, result.amb2, victims);
+  const kitsUsed = kitsFor(result.amb1, result.amb2);
+  const constraints = buildConstraints(
+    result.amb1,
+    result.amb2,
+    result.queued,
+    teamRidesWith,
+    kitsUsed,
+    victims
+  );
   const variables = buildVariables(
     result.amb1,
     result.amb2,
-    result.team,
+    result.queued,
+    teamRidesWith,
     kitsUsed,
     victims,
     constraints
@@ -465,7 +548,9 @@ export function solveCsp(victims: Victim[]): CspSolution {
   return {
     amb1Victims: result.amb1,
     amb2Victims: result.amb2,
-    teamVictim: result.team,
+    teamVictim: null,
+    teamRidesWith,
+    queuedVictims: result.queued,
     kitsUsed,
     satisfied: allSatisfied,
     backtracks: result.backtracks,

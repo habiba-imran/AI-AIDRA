@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Zap, Construction, UserPlus, Flame, Sparkles, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { Zap, Construction, Flame } from 'lucide-react';
 import type { SimulationActions } from '../engine/simulationEngine';
-import type { LocalSearch, MLModel, ObjectivePriority, SearchAlgorithm, SimulationState } from '../types';
+import type { SimulationState } from '../types';
 
 const sectionHeaderClass =
   'text-[10px] font-medium uppercase tracking-[0.08em] text-[#64748b] mb-1.5 mt-0';
@@ -10,43 +10,26 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className={sectionHeaderClass}>{children}</div>;
 }
 
-function ambStatusUi(status: SimulationState['ambulances'][0]['status']): 'EN ROUTE' | 'IDLE' {
+type AmbUiStatus = 'EN ROUTE' | 'IDLE' | 'STRANDED';
+type TeamUiStatus = 'RIDING' | 'STANDBY' | 'STRANDED';
+
+function ambStatusUi(status: SimulationState['ambulances'][0]['status']): AmbUiStatus {
   if (status === 'idle') return 'IDLE';
+  if (status === 'stranded') return 'STRANDED';
   return 'EN ROUTE';
 }
 
-function teamStatusUi(status: SimulationState['rescueTeam']['status']): string {
-  if (status === 'idle') return 'IDLE';
-  return 'ACTIVE';
+function teamStatusUi(team: SimulationState['rescueTeam']): TeamUiStatus {
+  if (team.status === 'stranded') return 'STRANDED';
+  if (team.ridesWith != null) return 'RIDING';
+  return 'STANDBY';
 }
-
-const SEARCH_OPTIONS: Array<{ label: string; value: SearchAlgorithm }> = [
-  { label: 'BFS', value: 'BFS' },
-  { label: 'DFS', value: 'DFS' },
-  { label: 'Greedy Best-First', value: 'Greedy' },
-  { label: 'A* ⭐', value: 'Astar' },
-];
-
-const LOCAL_SEARCH_OPTIONS: Array<{ label: string; value: LocalSearch }> = [
-  { label: 'Hill Climbing', value: 'HillClimbing' },
-  { label: 'Simulated Annealing', value: 'SimulatedAnnealing' },
-];
-
-const ML_OPTIONS: Array<{ label: string; value: MLModel }> = [
-  { label: 'kNN', value: 'kNN' },
-  { label: 'Naive Bayes', value: 'NaiveBayes' },
-  { label: 'MLP', value: 'MLP' },
-];
-
-const OBJECTIVE_OPTIONS: Array<{ label: string; value: ObjectivePriority }> = [
-  { label: 'Minimize Time', value: 'MinimizeTime' },
-  { label: 'Minimize Risk', value: 'MinimizeRisk' },
-  { label: 'Balanced', value: 'Balanced' },
-];
 
 interface LeftPanelProps {
   state: SimulationState;
   actions: SimulationActions;
+  /** When set, panel sits inside the live-sim sidebar scroll area (no outer chrome). */
+  variant?: 'standalone' | 'embedded';
 }
 
 function parseGridCoord(text: string): number | null {
@@ -59,17 +42,14 @@ function parseGridCoord(text: string): number | null {
   return i;
 }
 
-export default function LeftPanel({ state, actions }: LeftPanelProps) {
-  const { ambulances, rescueTeam, searchAlgorithm, localSearch, mlModel, objectivePriority, fuzzyLogicEnabled } = state;
+export default function LeftPanel({ state, actions, variant = 'standalone' }: LeftPanelProps) {
+  const embedded = variant === 'embedded';
+  const { ambulances, rescueTeam } = state;
   const [actionRow, setActionRow] = useState('10');
   const [actionCol, setActionCol] = useState('10');
-  const [aiConfigOpen, setAiConfigOpen] = useState(false);
 
   const coordInputClass =
     'min-w-0 h-8 px-2 bg-[#020817] border border-[#1e293b]/80 rounded text-[13px] text-[#f1f5f9] focus:outline-none focus:border-[#3b82f6]';
-
-  const selectClass =
-    'w-full min-w-0 h-7 px-2 py-1 text-[12px] bg-[#020817] border border-[#1e293b]/80 rounded appearance-none cursor-pointer focus:outline-none focus:border-[#3b82f6]';
 
   const runWithCoords = (rowText: string, colText: string, action: (row: number, col: number) => void) => {
     const row = parseGridCoord(rowText);
@@ -78,21 +58,31 @@ export default function LeftPanel({ state, actions }: LeftPanelProps) {
     action(row, col);
   };
 
+  const outerClass = embedded
+    ? 'flex w-full min-h-0 min-w-0 flex-col bg-transparent'
+    : 'w-[clamp(180px,16vw,212px)] shrink-0 h-full min-h-0 flex flex-col bg-[#0f172a] border border-[#1e293b]/80 rounded-lg overflow-hidden';
+
+  const scrollClass = embedded
+    ? 'overflow-x-hidden px-2 pt-2 pb-2 space-y-1.5'
+    : 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-2 pb-1.5 space-y-1.5';
+
   return (
-    <div className="w-[clamp(180px,16vw,212px)] shrink-0 h-full min-h-0 flex flex-col bg-[#0f172a] border border-[#1e293b]/80 rounded-lg overflow-hidden">
-      {/* Top: Grid Actions + Resources (scroll only if very short viewport) */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-2 pb-1.5 space-y-1.5">
-        <div>
-          <SectionLabel>Simulation controls</SectionLabel>
-          <div className="grid grid-cols-2 gap-2">
+    <div className={outerClass}>
+      <div className={scrollClass}>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="text-[7px] font-semibold uppercase tracking-[0.06em] text-[#64748b] leading-snug shrink-0 w-[3.5rem] select-none">
+              Simulation controls
+            </span>
             <input
               type="number"
               min={0}
               max={17}
               value={actionRow}
               onChange={(e) => setActionRow(e.target.value)}
-              className={coordInputClass}
+              className={`${coordInputClass} flex-1 min-w-0 h-8 px-1.5 text-center text-[13px]`}
               placeholder="r"
+              aria-label="Row"
             />
             <input
               type="number"
@@ -100,38 +90,32 @@ export default function LeftPanel({ state, actions }: LeftPanelProps) {
               max={17}
               value={actionCol}
               onChange={(e) => setActionCol(e.target.value)}
-              className={coordInputClass}
+              className={`${coordInputClass} flex-1 min-w-0 h-8 px-1.5 text-center text-[13px]`}
               placeholder="c"
+              aria-label="Column"
             />
           </div>
-          <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="grid grid-cols-3 gap-1">
             <button
               type="button"
-              className="h-[30px] flex items-center justify-center gap-1 rounded border border-red-500/50 bg-[#7f1d1d]/80 text-red-200 text-[12px] font-medium hover:bg-[#991b1b] cursor-pointer"
+              className="min-h-[30px] h-[30px] flex items-center justify-center gap-0.5 rounded border border-red-500/50 bg-[#7f1d1d]/80 text-red-200 text-[10px] font-medium hover:bg-[#991b1b] cursor-pointer px-0.5"
               onClick={() => runWithCoords(actionRow, actionCol, actions.triggerAfterShock)}
             >
-              <Zap className="w-3.5 h-3.5 shrink-0" /> Shock
+              <Zap className="w-3 h-3 shrink-0" /> Shock
             </button>
             <button
               type="button"
-              className="h-[30px] flex items-center justify-center gap-1 rounded border border-orange-500/50 text-orange-400 text-[12px] font-medium hover:bg-orange-500/10 cursor-pointer"
+              className="min-h-[30px] h-[30px] flex items-center justify-center gap-0.5 rounded border border-orange-500/50 text-orange-400 text-[10px] font-medium hover:bg-orange-500/10 cursor-pointer px-0.5"
               onClick={() => runWithCoords(actionRow, actionCol, actions.blockRoadAt)}
             >
-              <Construction className="w-3.5 h-3.5 shrink-0" /> Block
+              <Construction className="w-3 h-3 shrink-0" /> Block
             </button>
             <button
               type="button"
-              className="h-[30px] flex items-center justify-center gap-1 rounded border border-purple-500/50 text-purple-400 text-[12px] font-medium hover:bg-purple-500/10 cursor-pointer"
-              onClick={() => runWithCoords(actionRow, actionCol, actions.addVictimAt)}
-            >
-              <UserPlus className="w-3.5 h-3.5 shrink-0" /> Victim
-            </button>
-            <button
-              type="button"
-              className="h-[30px] flex items-center justify-center gap-1 rounded bg-gradient-to-r from-red-600 to-orange-600 text-[#f1f5f9] text-[12px] font-medium hover:from-red-500 hover:to-orange-500 cursor-pointer"
+              className="min-h-[30px] h-[30px] flex items-center justify-center gap-0.5 rounded bg-gradient-to-r from-red-600 to-orange-600 text-[#f1f5f9] text-[10px] font-medium hover:from-red-500 hover:to-orange-500 cursor-pointer px-0.5"
               onClick={() => runWithCoords(actionRow, actionCol, actions.spreadFireFrom)}
             >
-              <Flame className="w-3.5 h-3.5 shrink-0" /> Fire
+              <Flame className="w-3 h-3 shrink-0" /> Fire
             </button>
           </div>
         </div>
@@ -145,12 +129,24 @@ export default function LeftPanel({ state, actions }: LeftPanelProps) {
               const assignedLabel =
                 victimCount === 0 ? 'Standby at BASE' : amb.assignedVictims.join(', ');
               const etaLabel = amb.eta === null ? '—' : `${amb.eta} min`;
+              const accentClass =
+                uiStatus === 'EN ROUTE'
+                  ? 'border-l-2 border-l-[#3b82f6]'
+                  : uiStatus === 'STRANDED'
+                    ? 'border-l-2 border-l-red-500'
+                    : 'border-l-2 border-l-amber-500/50';
+              const badgeClass =
+                uiStatus === 'EN ROUTE'
+                  ? 'bg-green-500/20 text-green-400'
+                  : uiStatus === 'STRANDED'
+                    ? 'bg-red-500/25 text-red-300'
+                    : 'bg-amber-500/20 text-amber-400';
+              const trailingLabel =
+                uiStatus === 'STRANDED' ? 'Out of service — no path to MC' : assignedLabel;
               return (
                 <div
                   key={amb.id}
-                  className={`rounded border border-[#1e293b]/80 py-2 px-2.5 ${
-                    uiStatus === 'EN ROUTE' ? 'border-l-2 border-l-[#3b82f6]' : 'border-l-2 border-l-amber-500/50'
-                  }`}
+                  className={`rounded border border-[#1e293b]/80 py-2 px-2.5 ${accentClass}`}
                 >
                   <div className="flex items-center justify-between gap-1 mb-0.5">
                     <div className="flex items-center gap-1 min-w-0 text-[12px] font-medium text-[#f1f5f9] truncate">
@@ -158,11 +154,7 @@ export default function LeftPanel({ state, actions }: LeftPanelProps) {
                       <span className="truncate">{amb.label}</span>
                     </div>
                     <span
-                      className={`text-[10px] font-medium px-2 py-1 rounded-full shrink-0 ${
-                        uiStatus === 'EN ROUTE'
-                          ? 'bg-green-500/20 text-green-400'
-                          : 'bg-amber-500/20 text-amber-400'
-                      }`}
+                      className={`text-[10px] font-medium px-2 py-1 rounded-full shrink-0 ${badgeClass}`}
                     >
                       {uiStatus}
                     </span>
@@ -180,31 +172,64 @@ export default function LeftPanel({ state, actions }: LeftPanelProps) {
                   </div>
                   <div
                     className={`text-[11px] leading-tight truncate ${
-                      uiStatus === 'EN ROUTE' ? 'text-red-400' : 'text-[#64748b]'
+                      uiStatus === 'EN ROUTE'
+                        ? 'text-red-400'
+                        : uiStatus === 'STRANDED'
+                          ? 'text-red-300'
+                          : 'text-[#64748b]'
                     }`}
                   >
-                    → {assignedLabel}
+                    → {trailingLabel}
                   </div>
                   {uiStatus === 'EN ROUTE' && (
-                    <div className="text-[11px] text-green-400 mt-0.5">ETA MC1: {etaLabel}</div>
+                    <div className="text-[11px] text-green-400 mt-0.5">ETA MC: {etaLabel}</div>
                   )}
                 </div>
               );
             })}
 
-            <div className="rounded border border-[#1e293b]/80 border-l-2 border-l-amber-500/50 py-2 px-2.5">
-              <div className="flex items-center justify-between gap-1 mb-0.5">
-                <div className="flex items-center gap-1 min-w-0 text-[12px] font-medium text-[#f1f5f9] truncate">
-                  <span className="shrink-0">👷</span>
-                  <span className="truncate">{rescueTeam.label}</span>
+            {(() => {
+              const teamUi = teamStatusUi(rescueTeam);
+              const teamAccent =
+                teamUi === 'RIDING'
+                  ? 'border-l-purple-500'
+                  : teamUi === 'STRANDED'
+                    ? 'border-l-red-500'
+                    : 'border-l-amber-500/50';
+              const teamBadge =
+                teamUi === 'RIDING'
+                  ? 'bg-purple-500/25 text-purple-300'
+                  : teamUi === 'STRANDED'
+                    ? 'bg-red-500/25 text-red-300'
+                    : 'bg-amber-500/20 text-amber-400';
+              const teamLine =
+                teamUi === 'RIDING'
+                  ? `Riding with ${rescueTeam.ridesWith} (½ decay for passengers)`
+                  : teamUi === 'STRANDED'
+                    ? 'Stranded with host ambulance'
+                    : 'Standby — no active ambulance to host';
+              return (
+                <div className={`rounded border border-[#1e293b]/80 border-l-2 ${teamAccent} py-2 px-2.5`}>
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <div className="flex items-center gap-1 min-w-0 text-[12px] font-medium text-[#f1f5f9] truncate">
+                      <span className="shrink-0">👷</span>
+                      <span className="truncate">{rescueTeam.label}</span>
+                    </div>
+                    <span className={`text-[10px] font-medium px-2 py-1 rounded-full shrink-0 ${teamBadge}`}>
+                      {teamUi}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-purple-300 leading-snug">
+                    {teamLine}
+                  </div>
+                  {teamUi === 'RIDING' && (
+                    <div className="text-[10px] text-[#94a3b8] mt-0.5">
+                      Position mirrors {rescueTeam.ridesWith} on the map
+                    </div>
+                  )}
                 </div>
-                <span className="text-[10px] font-medium px-2 py-1 rounded-full bg-green-500/20 text-green-400 shrink-0">
-                  {teamStatusUi(rescueTeam.status)}
-                </span>
-              </div>
-              <div className="text-[11px] text-amber-400 truncate">→ {rescueTeam.assignedVictim ?? '—'}</div>
-              <div className="text-[11px] text-green-400">ETA {rescueTeam.eta === null ? '—' : `${rescueTeam.eta}m`}</div>
-            </div>
+              );
+            })()}
 
             <div className="flex items-center gap-2 rounded border border-[#1e293b]/80 py-2 px-2.5">
               <span className="text-[12px] font-medium text-[#f1f5f9] shrink-0">🧰 Kits</span>
@@ -215,109 +240,6 @@ export default function LeftPanel({ state, actions }: LeftPanelProps) {
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Bottom dropdown: AI Configuration */}
-      <div className="shrink-0 border-t border-[#1e293b]/80 px-2 py-1.5 relative">
-        <button
-          type="button"
-          onClick={() => setAiConfigOpen((v) => !v)}
-          className="w-full flex items-center justify-between text-left"
-        >
-          <div className={sectionHeaderClass}>AI Configuration</div>
-          {aiConfigOpen ? (
-            <ChevronUp className="w-4 h-4 text-[#94a3b8]" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-[#94a3b8]" />
-          )}
-        </button>
-        {aiConfigOpen && (
-          <div className="absolute left-2.5 right-2.5 bottom-full mb-2 z-20 card-glass border border-[#1e293b]/80 rounded-md p-2 grid grid-cols-[minmax(0,0.95fr)_minmax(0,1.4fr)] gap-x-2 gap-y-1.5 items-center">
-          <label className="text-[11px] text-[#64748b]">Search</label>
-          <select
-            className={selectClass}
-            value={searchAlgorithm}
-            onChange={(e) => actions.setSearchAlgorithm(e.target.value as SearchAlgorithm)}
-          >
-            {SEARCH_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-
-          <label className="text-[11px] text-[#64748b]">Local search</label>
-          <select
-            className={selectClass}
-            value={localSearch}
-            onChange={(e) => actions.setLocalSearch(e.target.value as LocalSearch)}
-          >
-            {LOCAL_SEARCH_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-
-          <label className="text-[11px] text-[#64748b]">ML model</label>
-          <select
-            className={selectClass}
-            value={mlModel}
-            onChange={(e) => actions.setMLModel(e.target.value as MLModel)}
-          >
-            {ML_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-
-          <label className="text-[11px] text-[#64748b]">Objective</label>
-          <select
-            className={selectClass}
-            value={objectivePriority}
-            onChange={(e) => actions.setObjectivePriority(e.target.value as ObjectivePriority)}
-          >
-            {OBJECTIVE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-
-          <label className="text-[11px] text-[#64748b] flex items-center gap-1 min-w-0">
-            <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-            Fuzzy
-          </label>
-          <div className="flex justify-end items-center">
-            <button
-              type="button"
-              onClick={actions.toggleFuzzyLogic}
-              className={`relative w-9 h-5 rounded-full border border-[#1e293b]/80 cursor-pointer ${
-                fuzzyLogicEnabled ? 'bg-[#3b82f6]' : 'bg-[#334155]'
-              }`}
-              aria-pressed={fuzzyLogicEnabled}
-            >
-              <span
-                className={`absolute top-0.5 h-4 w-4 rounded-full bg-[#f1f5f9] transition-all ${
-                  fuzzyLogicEnabled ? 'right-0.5' : 'left-0.5'
-                }`}
-              />
-            </button>
-          </div>
-          </div>
-        )}
-      </div>
-
-      {/* Bottom: Replan pinned */}
-      <div className="shrink-0 border-t border-[#1e293b]/80 p-2 pt-2">
-        <button
-          type="button"
-          onClick={actions.applyAndReplan}
-          className="w-full h-[38px] flex items-center justify-center gap-2 rounded-md text-[13px] font-medium bg-gradient-to-r from-[#3b82f6] to-[#6366f1] text-[#f1f5f9] hover:from-[#2563eb] hover:to-[#4f46e5] cursor-pointer"
-        >
-          <Settings className="w-4 h-4" /> Replan
-        </button>
       </div>
     </div>
   );

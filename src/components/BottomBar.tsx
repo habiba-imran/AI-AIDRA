@@ -1,5 +1,6 @@
-import { Sparkles } from 'lucide-react';
+import { Settings, Sparkles } from 'lucide-react';
 import type { KPI, MLModel, MlEvalSnapshot, FuzzyRoutingSnapshot } from '../types';
+import LiveSimAiConfig, { type LiveSimAiConfigProps } from './LiveSimAiConfig';
 
 interface BottomBarProps {
   fuzzyLogicEnabled: boolean;
@@ -8,6 +9,10 @@ interface BottomBarProps {
   mlEvalSnapshot: MlEvalSnapshot | null;
   kpis?: KPI[];
   layout?: 'bottom' | 'side';
+  /** When set with `layout="side"`, renders below the KPIs card (live simulation). */
+  liveSimAiSettings?: LiveSimAiConfigProps;
+  /** Live sim: full-width Replan below AI configuration (scrolls with that column). */
+  onLiveSimReplan?: () => void;
 }
 
 export default function BottomBar({
@@ -17,6 +22,8 @@ export default function BottomBar({
   mlEvalSnapshot,
   kpis = [],
   layout = 'bottom',
+  liveSimAiSettings,
+  onLiveSimReplan,
 }: BottomBarProps) {
   const knnActive = mlModel === 'kNN';
   const nbActive = mlModel === 'NaiveBayes';
@@ -35,8 +42,9 @@ export default function BottomBar({
 
   if (layout === 'side') {
     return (
-      <div className="flex-[0.58] xl:flex-[0.68] min-w-0 h-full min-h-0 border-r border-[#1e293b] p-2 flex flex-col gap-1.5 overflow-y-auto">
-        <div className="card-glass p-2.5">
+      <div className="flex h-full min-h-0 min-w-0 flex-[0.58] shrink-0 flex-col overflow-hidden border-r border-[#1e293b] xl:flex-[0.68]">
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden overscroll-contain p-2">
+        <div className="card-glass shrink-0 p-2.5">
           <div className="flex items-center gap-1.5 mb-1.5">
             <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
             <span className="text-[11px] font-semibold text-purple-400 uppercase tracking-wide">
@@ -58,7 +66,7 @@ export default function BottomBar({
           </div>
         </div>
 
-        <div className="card-glass p-2.5 space-y-1.5">
+        <div className="card-glass shrink-0 space-y-1.5 p-2.5">
           <div className="flex items-center justify-between gap-1 text-[10px]">
             <span className="text-[#cbd5e1] min-w-0 truncate">
               <span className="text-[#f1f5f9] font-semibold">kNN</span>{' '}
@@ -87,7 +95,7 @@ export default function BottomBar({
           </div>
         </div>
 
-        <div className="card-glass p-2.5">
+        <div className="card-glass shrink-0 p-2.5">
           <div className="text-[11px] font-semibold tracking-[0.12em] text-[#3b82f6] uppercase mb-1.5">KPIs</div>
           <div className="space-y-1.5">
             {kpis.map((kpi) => (
@@ -97,6 +105,20 @@ export default function BottomBar({
               </div>
             ))}
           </div>
+        </div>
+
+        {liveSimAiSettings ? <LiveSimAiConfig {...liveSimAiSettings} /> : null}
+
+        {liveSimAiSettings && onLiveSimReplan ? (
+          <button
+            type="button"
+            onClick={onLiveSimReplan}
+            className="flex h-[38px] w-full shrink-0 items-center justify-center gap-2 rounded-lg text-[12px] font-medium bg-gradient-to-r from-[#3b82f6] to-[#6366f1] text-[#f1f5f9] shadow-sm transition hover:from-[#2563eb] hover:to-[#4f46e5] cursor-pointer"
+          >
+            <Settings className="h-4 w-4 shrink-0" aria-hidden />
+            Replan
+          </button>
+        ) : null}
         </div>
       </div>
     );

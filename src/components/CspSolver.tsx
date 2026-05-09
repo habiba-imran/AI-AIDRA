@@ -188,7 +188,7 @@ export default function CspSolver({
     document.body.style.cursor = 'ns-resize';
   };
 
-  const constraintHeaders = ['Amb1', 'Amb2', 'Team', 'Kits', 'Overall'];
+  const constraintHeaders = ['Amb1', 'Amb2', 'Queue', 'Kits', 'Overall'];
 
   const flatTree = useMemo(() => {
     if (!cspSolution?.tree) {
@@ -244,7 +244,7 @@ export default function CspSolver({
 
   const statItems = useMemo(
     () => [
-      { label: 'Variables', value: '4', color: 'text-blue-400' },
+      { label: 'Variables', value: '5', color: 'text-blue-400' },
       {
         label: 'Domains',
         value: `${victims.length} values`,
@@ -396,7 +396,9 @@ export default function CspSolver({
                     ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                     : item.variable === 'Amb2'
                       ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
-                      : 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+                      : item.variable === 'Queue'
+                        ? 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+                        : 'bg-amber-500/20 text-amber-400 border-amber-500/30';
                 const vid = item.value[item.value.length - 1] ?? '';
                 const label = `${item.variable}←${vid}`;
                 return (
@@ -434,18 +436,29 @@ export default function CspSolver({
                   <span className="text-[10px] text-[#94a3b8] ml-6">{amb2Lines.second}</span>
                 </div>
               </div>
+              <div className="flex items-start gap-2">
+                <span className="text-[13px]">⏳</span>
+                <div>
+                  <span className="text-[11px] font-semibold text-[#f1f5f9]">Wait Queue</span>
+                  <span className="text-[10px] text-[#94a3b8]">
+                    {cspSolution?.queuedVictims && cspSolution.queuedVictims.length > 0
+                      ? ` → ${cspSolution.queuedVictims
+                          .map((id) => {
+                            const sev = victims.find((v) => v.id === id)?.severity ?? 'minor';
+                            return `${id} (${severityLabel(sev)}) ${severityEmoji(sev)}`;
+                          })
+                          .join(', ')}`
+                      : ' → none — everyone fits in this wave'}
+                  </span>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-[13px]">👷</span>
                 <span className="text-[11px] font-semibold text-[#f1f5f9]">Rescue Team</span>
                 <span className="text-[10px] text-[#94a3b8]">
-                  {cspSolution?.teamVictim
-                    ? (() => {
-                        const sev =
-                          victims.find((v) => v.id === cspSolution.teamVictim)
-                            ?.severity ?? 'minor';
-                        return ` → ${cspSolution.teamVictim} (${severityLabel(sev)}) ${severityEmoji(sev)}`;
-                      })()
-                    : ' → —'}
+                  {cspSolution?.teamRidesWith
+                    ? ` → rides with ${cspSolution.teamRidesWith} (½ decay for its passengers)`
+                    : ' → standby (no active ambulance)'}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -466,9 +479,9 @@ export default function CspSolver({
               <div>Critical victims prioritized by MRV heuristic ✅</div>
               <div>
                 Resource utilization:{' '}
-                {(cspSolution?.amb1Victims.length ?? 0) > 0 ? '100%' : '0%'} ambulances,{' '}
-                {(cspSolution?.amb2Victims.length ?? 0) > 0 ? '100%' : '0%'} ambulance 2,{' '}
-                {cspSolution?.teamVictim ? '100%' : '0%'} team ✅
+                {(cspSolution?.amb1Victims.length ?? 0) > 0 ? '100%' : '0%'} Amb1,{' '}
+                {(cspSolution?.amb2Victims.length ?? 0) > 0 ? '100%' : '0%'} Amb2,{' '}
+                {cspSolution?.teamRidesWith ? '100%' : '0%'} team ✅
               </div>
             </div>
           </div>

@@ -36,7 +36,17 @@ export interface Victim {
 }
 
 // Ambulance data
-export type ResourceStatus = 'idle' | 'en-route' | 'returning' | 'active';
+/**
+ * `stranded` = unit is alive but cannot reach its next target (or any MC) given the
+ * current grid blockages. It holds position; the agent logs a clear reason and waits
+ * for an environment change before further dispatch attempts.
+ */
+export type ResourceStatus =
+  | 'idle'
+  | 'en-route'
+  | 'returning'
+  | 'active'
+  | 'stranded';
 
 export interface Ambulance {
   id: string; // 'Amb1' | 'Amb2'
@@ -56,7 +66,18 @@ export interface RescueTeam {
   id: string; // 'Team1'
   label: string;
   status: ResourceStatus;
+  /**
+   * Legacy field from the old "team is a 3rd ambulance" model. The new model treats the
+   * team as a stabilization unit that rides with one ambulance, so this stays `null`.
+   * Retained on the type for backward compatibility with older state snapshots.
+   */
   assignedVictim: string | null;
+  /**
+   * Which ambulance the team currently rides with (decided post-CSP). When non-null, the
+   * team mirrors that ambulance's position every tick and halves the survival decay of
+   * victims being transported by that ambulance (in-transit medical stabilization).
+   */
+  ridesWith: 'Amb1' | 'Amb2' | null;
   currentRow: number;
   currentCol: number;
   route: Array<{ row: number; col: number }>;
@@ -214,7 +235,6 @@ export interface SimulationState {
   avgRescueTime: number;
   riskExposureScore: number;
   resourceUtilization: number;
-  nextVictimSeq: number;
   searchResults: SearchResult | null;
   allAlgoComparisons: AlgoComparison[];
   localSearchResult: LocalSearchResult | null;
@@ -284,7 +304,18 @@ export interface CspPerfRow {
 export interface CspSolution {
   amb1Victims: string[];
   amb2Victims: string[];
+  /**
+   * Legacy field: in the original model the team was a 3rd pickup unit. The new model
+   * always sets this to `null` — see `teamRidesWith` for the team's actual placement.
+   */
   teamVictim: string | null;
+  /** Which ambulance the team rides with this cycle, decided post-CSP. */
+  teamRidesWith: 'Amb1' | 'Amb2' | null;
+  /**
+   * Victims that didn't fit in the 4 ambulance slots this cycle. They stay `waiting`;
+   * the next CSP solve (triggered when an ambulance becomes idle) will retry them.
+   */
+  queuedVictims: string[];
   kitsUsed: number;
   satisfied: boolean;
   backtracks: number;
@@ -385,10 +416,7 @@ export interface LocalSearchResult {
 
 /** Actions returned by `useSimulation` (see `src/engine/simulationEngine.ts`). */
 export interface SimulationActions {
-  startSimulation: () => void;
-  pauseSimulation: () => void;
   resetSimulation: () => void;
-  setSpeed: (speed: SimSpeed) => void;
   setSearchAlgorithm: (algo: SearchAlgorithm) => void;
   setLocalSearch: (ls: LocalSearch) => void;
   setMLModel: (model: MLModel) => void;
@@ -396,14 +424,24 @@ export interface SimulationActions {
   toggleFuzzyLogic: () => void;
   triggerAfterShock: (row: number, col: number) => void;
   blockRoadAt: (row: number, col: number) => void;
-  addVictimAt: (row: number, col: number) => void;
   spreadFireFrom: (row: number, col: number) => void;
+  /**
+   * Inject a new victim into the live scenario. Position must be in-bounds and passable;
+   * cannot overlap base/MC cells or another active victim. Severity drives survival decay.
+   */
+  addVictim: (input: {
+    row: number;
+    col: number;
+    severity: SeverityLevel;
+    survivalPct: number;
+  }) => void;
   applyAndReplan: () => void;
   clearLog: () => void;
   dismissToast: (id: string) => void;
-  onTick: () => void;
   runSearchForAlgorithm: (algo: SearchAlgorithm) => void;
   runCsp: () => void;
   /** Train/eval kNN, Naive Bayes, and MLP on the synthetic risk dataset; stores snapshot in state. */
   runMlEvaluation: () => void;
+  stepForward: () => void;
+  stepBackward: () => void;
 }

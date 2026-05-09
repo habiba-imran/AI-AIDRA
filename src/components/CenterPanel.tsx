@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type {
   Ambulance,
@@ -10,10 +10,11 @@ import type {
   Victim,
 } from '../types';
 
-const CELL_SIZE = 22;
 const GRID_SIZE = 18;
 /** Column for row/col index labels around the grid */
 const AXIS_GUTTER_PX = 24;
+/** Fallback before first layout measure */
+const DEFAULT_CELL_PX = 22;
 
 const cellColors: Record<CellType, string> = {
   road: '#1e293b',
@@ -104,7 +105,58 @@ export default function CenterPanel({
   routeTeam = [],
 }: CenterPanelProps) {
   const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null);
-  const mapFrameSize = `min(748px, calc(100vh - 155px), calc(100vw - 540px))`;
+  const mapViewportRef = useRef<HTMLDivElement>(null);
+  const gridContentRef = useRef<HTMLDivElement>(null);
+  const gridCellAreaRef = useRef<HTMLDivElement>(null);
+  const colHeaderRowRef = useRef<HTMLDivElement>(null);
+  const [gridScale, setGridScale] = useState(1);
+  const [naturalMapSize, setNaturalMapSize] = useState({ w: 424, h: 418 });
+  const [mapLayoutWidth, setMapLayoutWidth] = useState(420);
+  const [cellPx, setCellPx] = useState(DEFAULT_CELL_PX);
+  const [headerRowPx, setHeaderRowPx] = useState(DEFAULT_CELL_PX);
+
+  useLayoutEffect(() => {
+    const vp = mapViewportRef.current;
+    const content = gridContentRef.current;
+    const cellArea = gridCellAreaRef.current;
+    const headerRow = colHeaderRowRef.current;
+    if (!vp || !content) return;
+
+    const update = () => {
+      const cw = vp.clientWidth;
+      const ch = vp.clientHeight;
+      if (cw <= 0 || ch <= 0) return;
+
+      const nextW = Math.min(600, Math.max(120, cw));
+      setMapLayoutWidth(nextW);
+
+      const measure = () => {
+        const kw = content.offsetWidth;
+        const kh = content.offsetHeight;
+        if (kw <= 0 || kh <= 0) return;
+        setNaturalMapSize({ w: kw, h: kh });
+        setGridScale(Math.min(1, cw / kw, ch / kh));
+        const area = gridCellAreaRef.current;
+        const hdr = colHeaderRowRef.current;
+        if (area) {
+          setCellPx(area.clientWidth / GRID_SIZE);
+        }
+        if (hdr) {
+          setHeaderRowPx(hdr.offsetHeight || DEFAULT_CELL_PX);
+        }
+      };
+
+      requestAnimationFrame(measure);
+    };
+
+    const ro = new ResizeObserver(update);
+    ro.observe(vp);
+    ro.observe(content);
+    if (cellArea) ro.observe(cellArea);
+    if (headerRow) ro.observe(headerRow);
+    update();
+    return () => ro.disconnect();
+  }, []);
 
   const cellMap = new Map<string, GridCell>();
   for (let r = 0; r < GRID_SIZE; r++) {
@@ -150,12 +202,10 @@ export default function CenterPanel({
   const hovered = hoveredCell ? cellMap.get(getCellKey(hoveredCell.row, hoveredCell.col)) : null;
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 h-full overflow-hidden p-0">
-      <div className="w-full h-full flex items-start justify-end">
-        <div
-          className="card-glass border border-[#1e293b] rounded-xl overflow-hidden flex flex-col"
-          style={{ width: mapFrameSize, height: mapFrameSize }}
-        >
+    <div className="flex-1 min-w-0 min-h-0 h-full overflow-hidden flex items-center justify-center p-1">
+      <div
+        className="card-glass border border-[#1e293b] rounded-xl overflow-hidden flex flex-col min-h-0 h-full max-h-full w-full max-w-[min(748px,100%,calc(100vw-36rem))] mx-auto shadow-lg shadow-black/20"
+      >
           <div className="shrink-0 bg-[#451a03] border-b border-amber-900/50 px-2.5 py-1 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
@@ -175,36 +225,65 @@ export default function CenterPanel({
             <span className="text-[8px] text-[#64748b] shrink-0">Hover cells</span>
           </div>
 
-          <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden px-2 pb-1">
-            <div className="relative">
-              <div className="flex" style={{ paddingLeft: AXIS_GUTTER_PX }}>
+          <div
+            ref={mapViewportRef}
+            className="flex-1 min-h-0 flex items-center justify-center overflow-hidden px-2 pb-1 min-w-0"
+          >
+            <div
+              className="relative flex items-center justify-center overflow-hidden"
+              style={{
+                width: naturalMapSize.w * gridScale,
+                height: naturalMapSize.h * gridScale,
+              }}
+            >
+              <div
+                ref={gridContentRef}
+                className="relative mx-auto flex flex-col"
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  width: mapLayoutWidth,
+                  transform: `translate(-50%, -50%) scale(${gridScale})`,
+                  transformOrigin: 'center center',
+                }}
+              >
+              <div
+                ref={colHeaderRowRef}
+                className="flex min-w-0"
+                style={{ paddingLeft: AXIS_GUTTER_PX }}
+              >
                 {Array.from({ length: GRID_SIZE }, (_, c) => (
                   <div
                     key={c}
-                    className="text-[10px] font-semibold text-[#94a3b8] font-mono-display text-center leading-none flex items-center justify-center"
-                    style={{ width: CELL_SIZE }}
+                    className="text-[10px] font-semibold text-[#94a3b8] font-mono-display text-center leading-none flex flex-1 min-w-0 items-center justify-center py-0.5"
                   >
                     {c}
                   </div>
                 ))}
               </div>
-              <div className="flex items-stretch">
-                <div className="flex flex-col shrink-0 justify-start" style={{ width: AXIS_GUTTER_PX }}>
+              <div className="flex min-w-0 items-stretch">
+                <div
+                  className="flex shrink-0 flex-col justify-stretch gap-0 py-0 pr-1"
+                  style={{ width: AXIS_GUTTER_PX }}
+                >
                   {Array.from({ length: GRID_SIZE }, (_, r) => (
                     <div
                       key={r}
-                      className="text-[10px] font-semibold text-[#94a3b8] font-mono-display flex items-center justify-end pr-1 leading-none"
-                      style={{ height: CELL_SIZE }}
+                      className="flex min-h-0 flex-1 flex-col items-end justify-center pr-0.5"
                     >
-                      {r}
+                      <span className="text-[10px] font-semibold leading-none text-[#94a3b8] font-mono-display">
+                        {r}
+                      </span>
                     </div>
                   ))}
                 </div>
                 <div
-                  className="grid shrink-0 border border-[#1e293b] rounded-lg overflow-hidden"
+                  ref={gridCellAreaRef}
+                  className="grid aspect-square min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-[#1e293b]"
                   style={{
-                    gridTemplateColumns: `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`,
-                    gridTemplateRows: `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`,
+                    gridTemplateColumns: `repeat(${GRID_SIZE}, minmax(0, 1fr))`,
+                    gridTemplateRows: `repeat(${GRID_SIZE}, minmax(0, 1fr))`,
                   }}
                 >
                   {Array.from({ length: GRID_SIZE * GRID_SIZE }, (_, i) => {
@@ -225,13 +304,11 @@ export default function CenterPanel({
                     return (
                       <div
                         key={key}
-                        className="relative flex items-center justify-center text-[9px] cursor-pointer transition-all duration-100"
+                        className="relative box-border flex aspect-square size-full min-h-0 min-w-0 cursor-pointer items-center justify-center text-[9px] transition-all duration-100 max-[420px]:text-[8px]"
                         style={{
-                          width: CELL_SIZE,
-                          height: CELL_SIZE,
                           backgroundColor: routeColor ? `${routeColor}15` : bgColor,
-                          borderRight: '1px solid #0a0f1e',
-                          borderBottom: '1px solid #0a0f1e',
+                          borderRight: '0.5px solid rgba(255, 255, 255, 0.1)',
+                          borderBottom: '0.5px solid rgba(255, 255, 255, 0.1)',
                           boxShadow: isHovered ? '0 0 8px rgba(59,130,246,0.5), inset 0 0 8px rgba(59,130,246,0.2)' : undefined,
                           zIndex: isHovered ? 10 : 1,
                         }}
@@ -274,7 +351,13 @@ export default function CenterPanel({
                             🚑
                           </div>
                         )}
-                        {isTeam && (
+                        {amb && rescueTeam.ridesWith === amb.id && (
+                          <div
+                            className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-purple-500 z-30 ring-1 ring-[#0a0f1e]"
+                            title="Rescue team riding with this ambulance"
+                          />
+                        )}
+                        {isTeam && rescueTeam.ridesWith == null && (
                           <div className="absolute w-4 h-4 rounded-full bg-yellow-500 flex items-center justify-center text-[8px] z-20 glow-amber">
                             👷
                           </div>
@@ -289,8 +372,14 @@ export default function CenterPanel({
                 <div
                   className="absolute card-glass p-2.5 z-50 pointer-events-none text-[10px] space-y-0.5 min-w-[180px]"
                   style={{
-                    left: Math.min(hoveredCell.col * CELL_SIZE + CELL_SIZE + 28, GRID_SIZE * CELL_SIZE - 180),
-                    top: Math.min(hoveredCell.row * CELL_SIZE + 20, GRID_SIZE * CELL_SIZE - 80),
+                    left: Math.min(
+                      AXIS_GUTTER_PX + hoveredCell.col * cellPx + 4,
+                      AXIS_GUTTER_PX + GRID_SIZE * cellPx - 172
+                    ),
+                    top: Math.min(
+                      headerRowPx + hoveredCell.row * cellPx + 4,
+                      headerRowPx + GRID_SIZE * cellPx - 76
+                    ),
                   }}
                 >
                   <div className="text-[#f1f5f9] font-semibold">
@@ -312,6 +401,7 @@ export default function CenterPanel({
                   </div>
                 </div>
               )}
+              </div>
             </div>
           </div>
 
@@ -356,7 +446,6 @@ export default function CenterPanel({
             </div>
           </div>
         </div>
-      </div>
     </div>
   );
 }
