@@ -1,4 +1,5 @@
 import type { AlgoComparison, CspPerfRow, MlEvalSnapshot, SearchAlgorithm, SimulationState } from '../types';
+import { formatTime } from './formatters';
 
 /** Same fields as `ScenarioRow` in `data/placeholder` (kept here to avoid engine → placeholder imports). */
 interface AnalyticsScenarioRow {
@@ -85,7 +86,7 @@ export function liveScenarioRow(state: SimulationState): AnalyticsScenarioRow {
     algorithm: algoLabel,
     mlModel: ml,
     victimsSaved: `${saved}/${total}`,
-    avgTime: state.avgRescueTime > 0 ? `${Math.round(state.avgRescueTime * 10) / 10}m` : '—',
+    avgTime: state.avgRescueTime > 0 ? formatTime(Math.round(state.avgRescueTime)) : '—',
     riskScore: Math.round(state.riskExposureScore),
     optimality: opt === null ? -1 : opt,
     replanEvents: state.replanCount,

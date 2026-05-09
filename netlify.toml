@@ -3,11 +3,11 @@
   publish = "dist"
   environment = { NODE_VERSION = "20" }
 
+# SPA fallback: only applies when no static file matches (do not use force=true).
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
-  force = true
 
 # Cache policy for assets with content hashing
 [[headers]]

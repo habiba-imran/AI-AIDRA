@@ -31,8 +31,14 @@ export interface Victim {
   status: VictimStatus;
   assignedTo: string | null; // 'Amb1' | 'Amb2' | 'Team' | null
   survivalPct: number; // 0-100, decays over time
-  eta: number | null; // minutes, null if unassigned
+  eta: number | null; // remaining travel time (in sim seconds) until pickup, null if unassigned
   priorityScore: number; // computed from severity + survival
+  /**
+   * Wall-clock simulation time (`elapsedSeconds`) at the moment this victim was picked up
+   * by an ambulance (status flipped to `rescued`). Used by the live "Avg Rescue Time" KPI.
+   * `null` until the victim is rescued. Stays set even after drop-off at MC.
+   */
+  rescuedAtSeconds: number | null;
 }
 
 // Ambulance data

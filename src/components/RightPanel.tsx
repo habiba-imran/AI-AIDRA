@@ -94,9 +94,18 @@ function severityUi(sev: Victim['severity']): string {
   return 'Minor';
 }
 
-function formatVictimEta(eta: Victim['eta']): string {
-  if (eta === null) return '—';
-  return `${eta}m`;
+/**
+ * For rescued victims show the wall-clock pickup time (`MM:SS`); for active victims
+ * show remaining travel ticks; for waiting victims show em-dash. The earlier code
+ * only showed `0m` after rescue, which was misleading once the avg-rescue-time KPI
+ * started using `rescuedAtSeconds`.
+ */
+function formatVictimEta(v: Victim): string {
+  if (v.status === 'rescued' && v.rescuedAtSeconds !== null) {
+    return `@${formatTime(v.rescuedAtSeconds)}`;
+  }
+  if (v.eta === null) return '—';
+  return `${v.eta}s`;
 }
 
 interface RightPanelProps {
@@ -157,7 +166,7 @@ export default function RightPanel({ state, actions }: RightPanelProps) {
                 <td className="py-0.5 text-[#cbd5e1] truncate text-[10px]">{v.assignedTo ?? '—'}</td>
                 <td className="py-0.5"><SurvivalBar pct={v.survivalPct} /></td>
                 <td className="py-0.5 text-[#cbd5e1] font-mono-display text-[10px]">{mlRiskShort(v.id, victimMlEstimates)}</td>
-                <td className="py-0.5 text-[#cbd5e1] font-mono-display text-[10px]">{formatVictimEta(v.eta)}</td>
+                <td className="py-0.5 text-[#cbd5e1] font-mono-display text-[10px]">{formatVictimEta(v)}</td>
               </tr>
             ))}
           </tbody>

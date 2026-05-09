@@ -163,14 +163,21 @@ function computeResourceUtilization(
 function computeKpis(state: SimulationState): KPI[] {
   const saved = state.victims.filter((v) => v.status === 'rescued').length;
   const total = state.victims.length;
-  const rescuedWithEta = state.victims.filter(
-    (v) => v.status === 'rescued' && v.eta !== null
+  /**
+   * Avg rescue time = mean wall-clock elapsed seconds from sim start to pick-up,
+   * across every rescued victim. Uses `rescuedAtSeconds` set at the moment of
+   * rescue (not the now-zeroed `eta`), so the KPI tracks something real.
+   */
+  const rescuedWithStamp = state.victims.filter(
+    (v) => v.status === 'rescued' && v.rescuedAtSeconds !== null
   );
-  const avgEta =
-    rescuedWithEta.length === 0
+  const avgRescueSeconds =
+    rescuedWithStamp.length === 0
       ? 0
-      : rescuedWithEta.reduce((acc, v) => acc + (v.eta as number), 0) /
-        rescuedWithEta.length;
+      : rescuedWithStamp.reduce(
+          (acc, v) => acc + (v.rescuedAtSeconds as number),
+          0
+        ) / rescuedWithStamp.length;
 
   const riskExposure = computeRiskExposureScore(
     state.grid,
@@ -194,7 +201,10 @@ function computeKpis(state: SimulationState): KPI[] {
     {
       icon: '⏱',
       label: 'Avg Rescue Time',
-      value: avgEta === 0 ? '—' : `${Math.round(avgEta * 10) / 10}m`,
+      value:
+        rescuedWithStamp.length === 0
+          ? '—'
+          : formatTime(Math.round(avgRescueSeconds)),
       color: 'green',
     },
     {
@@ -314,14 +324,21 @@ function appendEventLogsAndMaybeRefreshRoutes(
 
 function recomputeDerived(state: SimulationState): SimulationState {
   const victimsSaved = state.victims.filter((v) => v.status === 'rescued').length;
-  const rescuedWithEta = state.victims.filter(
-    (v) => v.status === 'rescued' && v.eta !== null
+  /**
+   * Mirror of `computeKpis`: the "avg rescue time" stored on the state is mean
+   * wall-clock seconds from sim start to pick-up across rescued victims. Used by
+   * any consumer reading `state.avgRescueTime` directly (e.g. analytics rows).
+   */
+  const rescuedWithStamp = state.victims.filter(
+    (v) => v.status === 'rescued' && v.rescuedAtSeconds !== null
   );
   const avgRescueTime =
-    rescuedWithEta.length === 0
+    rescuedWithStamp.length === 0
       ? 0
-      : rescuedWithEta.reduce((acc, v) => acc + (v.eta as number), 0) /
-        rescuedWithEta.length;
+      : rescuedWithStamp.reduce(
+          (acc, v) => acc + (v.rescuedAtSeconds as number),
+          0
+        ) / rescuedWithStamp.length;
 
   return {
     ...state,
@@ -1188,6 +1205,7 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
         survivalPct: survivalClamped,
         eta: null,
         priorityScore: basePriorityForSeverity(severity, survivalClamped),
+        rescuedAtSeconds: null,
       };
 
       const logEntry: DecisionLogEntry = {
@@ -1348,6 +1366,122 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
       let rescueTeam = cloneTeam(moved.rescueTeam);
       const victimById = new Map(victims.map((v) => [v.id, v] as const));
 
+      /**
+       * Dead-head cleanup. If any ambulance's current target (or the next one in its
+       * queue) just transitioned to `lost` (survival depleted this tick) — or somehow
+       * got marked `rescued` elsewhere — shift those entries off the queue, log the
+       * abandonment, and replan from the unit's current cell to the new head (or to
+       * the cheapest MC if the queue is now empty). Without this, the rescue check
+       * silently fails on a dead body and the ambulance is stuck en-route forever,
+       * which also blocks wave dispatch from ever firing for the remaining victims.
+       */
+      for (let i = 0; i < ambulances.length; i++) {
+        const amb = ambulances[i];
+        if (amb.status !== 'en-route' || amb.assignedVictims.length === 0) continue;
+
+        const queue = [...amb.assignedVictims];
+        const droppedDead: string[] = [];
+        while (queue.length > 0) {
+          const head = victimById.get(queue[0]);
+          if (head && (head.status === 'lost' || head.status === 'rescued')) {
+            if (head.status === 'lost') droppedDead.push(head.id);
+            queue.shift();
+          } else {
+            break;
+          }
+        }
+        if (droppedDead.length === 0) continue;
+
+        tickLogs.push({
+          id: generateId(),
+          timestamp: formatTime(state.elapsedSeconds),
+          text:
+            `⚰ ${amb.id} dropping ${droppedDead.length === 1 ? 'deceased target' : 'deceased targets'} ` +
+            `{${droppedDead.join(', ')}} — survival depleted before pickup; ` +
+            (queue.length > 0
+              ? `replanning to next victim ${queue[0]}`
+              : 'returning to nearest MC'),
+          type: 'replan',
+        });
+
+        if (queue.length > 0) {
+          const nextV = victimById.get(queue[0]);
+          const nextRoute = nextV
+            ? planRoute(state, amb.currentRow, amb.currentCol, nextV.row, nextV.col)
+            : [];
+          if (nextRoute.length === 0) {
+            /**
+             * Survivors in the queue are unreachable from this ambulance's stuck cell.
+             * Send them back to the dispatch pool so the next CSP solve can try the
+             * other ambulance (or queue them until the env opens).
+             */
+            for (const id of queue) {
+              const ov = victimById.get(id);
+              if (ov && ov.status !== 'rescued' && ov.status !== 'lost') {
+                ov.status = 'waiting';
+                ov.assignedTo = null;
+                ov.eta = null;
+              }
+            }
+            tickLogs.push({
+              id: generateId(),
+              timestamp: formatTime(state.elapsedSeconds),
+              text:
+                `🚧 ${amb.id} cannot reach surviving queue {${queue.join(', ')}} ` +
+                `from (${amb.currentRow},${amb.currentCol}) — released to dispatch pool`,
+              type: 'replan',
+            });
+            ambulances[i] = {
+              ...amb,
+              assignedVictims: [],
+              route: [],
+              eta: null,
+              status: 'idle',
+            };
+          } else {
+            ambulances[i] = {
+              ...amb,
+              assignedVictims: queue,
+              route: nextRoute,
+              eta: nextRoute.length > 1 ? nextRoute.length - 1 : null,
+              status: 'en-route',
+            };
+          }
+        } else {
+          /**
+           * Queue empty after dropping the dead — head back to the cheapest reachable
+           * MC so the unit becomes idle and the wave-dispatch trigger can fire for
+           * any victims still waiting.
+           */
+          const choice = pickBestMc(state, amb.currentRow, amb.currentCol);
+          if (!choice) {
+            tickLogs.push({
+              id: generateId(),
+              timestamp: formatTime(state.elapsedSeconds),
+              text:
+                `❌ ${amb.id} stranded at (${amb.currentRow},${amb.currentCol}) ` +
+                `after losing all queued victims — both MCs unreachable.`,
+              type: 'replan',
+            });
+            ambulances[i] = {
+              ...amb,
+              assignedVictims: [],
+              route: [],
+              eta: null,
+              status: 'stranded',
+            };
+          } else {
+            ambulances[i] = {
+              ...amb,
+              assignedVictims: [],
+              route: choice.route,
+              eta: choice.route.length > 1 ? choice.route.length - 1 : null,
+              status: 'returning',
+            };
+          }
+        }
+      }
+
       for (let i = 0; i < ambulances.length; i++) {
         const amb = ambulances[i];
         if (amb.status === 'en-route' && amb.assignedVictims.length > 0) {
@@ -1360,9 +1494,18 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
             amb.currentRow === target.row &&
             amb.currentCol === target.col
           ) {
+            /**
+             * Pick-up moment. Capture the wall-clock simulation time so the live
+             * "Avg Rescue Time" KPI can average real elapsed seconds across rescued
+             * victims (the old code averaged `eta=0` and always rendered "—").
+             * `state.elapsedSeconds + 1` matches the `next.elapsedSeconds` we'll
+             * publish at the bottom of this tick.
+             */
+            const rescuedAt = state.elapsedSeconds + 1;
             target.status = 'rescued';
             target.assignedTo = amb.id;
             target.eta = 0;
+            target.rescuedAtSeconds = rescuedAt;
             newToasts.push({
               id: generateId(),
               type: 'success',
@@ -1372,7 +1515,9 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
             tickLogs.push({
               id: generateId(),
               timestamp: formatTime(state.elapsedSeconds),
-              text: `✅ ${target.id} rescued by ${amb.id}`,
+              text:
+                `✅ ${target.id} rescued by ${amb.id} at ${formatTime(rescuedAt)} ` +
+                `(survival ${target.survivalPct.toFixed(1)}%)`,
               type: 'success',
             });
 

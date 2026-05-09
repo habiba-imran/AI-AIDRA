@@ -1,122 +1,130 @@
-# Netlify Deployment Guide
+# Deploy AIDRA on Netlify
 
-## Prerequisites
-- GitHub/GitLab/Bitbucket account with this repository pushed
-- Netlify account (https://app.netlify.com)
+This app is a **Vite + React** SPA. Netlify builds with `npm run build` and serves the `dist` folder. Settings are in **`netlify.toml`** at the project root (same folder as `package.json`).
 
-## Deployment Steps
+---
 
-### Option 1: Deploy from Git (Recommended)
+## Before you deploy (local check)
 
-1. **Push to Git**
-   ```bash
-   git add .
-   git commit -m "Add Netlify configuration"
-   git push origin main
-   ```
-
-2. **Connect to Netlify**
-   - Go to [app.netlify.com](https://app.netlify.com)
-   - Click "New site from Git"
-   - Select your repository provider (GitHub, GitLab, Bitbucket)
-   - Authorize Netlify to access your repositories
-   - Select the `habiba-imran/AIDRA` repository
-
-3. **Configure Build Settings**
-   - Build command: `npm run build`
-   - Publish directory: `dist`
-   - These are already configured in `netlify.toml`, so Netlify should auto-detect them
-
-4. **Deploy**
-   - Click "Deploy site"
-   - Netlify will automatically build and deploy your site
-   - Your site will be available at a URL like: `https://xxxxx.netlify.app`
-
-### Option 2: Deploy with Netlify CLI
+From the **`AI-AIDRA`** folder (where `package.json` lives):
 
 ```bash
-# Install Netlify CLI globally
-npm install -g netlify-cli
-
-# Build the project
-npm run build
-
-# Deploy
-netlify deploy --prod --dir=dist
-```
-
-## Environment Variables
-
-If you need to use Supabase or other services in the future:
-
-1. Go to Site Settings → Build & deploy → Environment
-2. Add your environment variables:
-   - `VITE_SUPABASE_URL` - Your Supabase project URL
-   - `VITE_SUPABASE_ANON_KEY` - Your Supabase anonymous key
-
-Reference the `.env.example` file for variable names.
-
-## File Configuration
-
-- **netlify.toml** - Main Netlify configuration
-  - Build command and output directory
-  - SPA routing redirects (all 404s route to index.html)
-  - Environment settings
-
-- **vite.config.ts** - Updated for production optimization
-  - Code splitting (vendor bundle)
-  - Minification with Terser
-  - No source maps in production
-
-- **.env.example** - Template for environment variables
-
-## Features of This Setup
-
-✅ Automatic builds on every git push
-✅ Preview deployments for pull requests
-✅ SPA routing configured (all routes handled by index.html)
-✅ Production-optimized build
-✅ Code splitting for better caching
-✅ Minified and bundled assets
-✅ Compatible with Supabase integration if needed
-
-## Post-Deployment
-
-1. **Custom Domain** (Optional)
-   - Site settings → Domain management
-   - Add your custom domain
-
-2. **HTTPS**
-   - Automatically enabled by Netlify
-   - Automatic certificate renewal
-
-3. **Analytics**
-   - Enable in Site settings for performance insights
-
-4. **Monitoring**
-   - Check deployment logs in Netlify dashboard
-   - Set up error tracking if needed
-
-## Troubleshooting
-
-**Build fails?**
-- Check build logs in Netlify dashboard
-- Ensure `npm run build` works locally: `npm run build && npm run preview`
-
-**Site shows 404?**
-- The netlify.toml redirects all requests to index.html for SPA routing
-- Clear browser cache and hard refresh
-
-**Environment variables not working?**
-- Variables must be prefixed with `VITE_` to be accessible in client-side code
-- Redeploy site after adding environment variables
-
-## Local Testing
-
-Test the production build locally:
-```bash
+npm install
 npm run build
 npm run preview
 ```
 
-Then open http://localhost:4173 to verify the build works correctly.
+Open the URL shown (usually `http://localhost:4173`). If that works, Netlify should be able to build the same way.
+
+---
+
+## Important: repository root vs subfolder
+
+| Your Git repo contains… | In Netlify: **Base directory** |
+|-------------------------|--------------------------------|
+| Only this app (files like `package.json`, `vite.config.ts` at repo root) | Leave **empty** or `.` |
+| Parent folder (e.g. `AI FINAL`) and the app is inside **`AI-AIDRA/`** | Set to **`AI-AIDRA`** |
+
+If the base directory is wrong, Netlify will not find `package.json` or `netlify.toml` and the build will fail.
+
+---
+
+## Option A — Netlify UI (recommended)
+
+1. Push this project to **GitHub** (or GitLab / Bitbucket). If the app is in a subfolder, push the whole repo; you will set the base directory in step 4.
+
+2. Go to [app.netlify.com](https://app.netlify.com) and sign in.
+
+3. **Add new site** → **Import an existing project** → connect your Git provider → pick the repository.
+
+4. **Build settings** (Netlify usually reads `netlify.toml`; confirm they match):
+
+   | Setting | Value |
+   |---------|--------|
+   | **Base directory** | Empty if repo root is the app; otherwise `AI-AIDRA` |
+   | **Build command** | `npm run build` |
+   | **Publish directory** | `dist` |
+
+5. **Deploy**. Wait for the build log to finish green.
+
+6. Open the generated URL (`https://something.netlify.app`). Hard-refresh once if you see a stale page.
+
+---
+
+## Option B — Netlify CLI
+
+Install CLI (once): `npm install -g netlify-cli`
+
+From **`AI-AIDRA`**:
+
+```bash
+npm install
+npm run build
+netlify login
+netlify init          # link site (first time) or use existing site
+netlify deploy --prod --dir=dist
+```
+
+For a linked site, `netlify.toml` in the current directory is used when you run commands from this folder.
+
+---
+
+## What `netlify.toml` does
+
+- **`[build]`** — `npm run build`, publish `dist`, **Node 20** for builds.
+- **Redirect `/*` → `/index.html` (200)** — SPA fallback so client-side routing does not 404 on refresh (static files under `/assets/` are still served normally; **`force` is not used** so real files are not overridden).
+- **Headers** — long cache for hashed assets under `/assets/`, no heavy cache for `*.html`.
+
+---
+
+## Environment variables (optional)
+
+This app runs entirely in the browser unless you add APIs. If you later use `import.meta.env.VITE_*` variables:
+
+1. Netlify: **Site configuration** → **Environment variables**
+2. Add names like `VITE_MY_API_URL`
+3. Trigger a new deploy after changes
+
+Copy names from **`.env.example`** if present. Never commit real secrets in the repo.
+
+---
+
+## After deploy
+
+- **Custom domain**: Site configuration → **Domain management**
+- **HTTPS**: Enabled by default on Netlify
+- **Branch deploys**: Default production branch builds on every push; preview deploys for PRs if enabled in team settings
+
+---
+
+## Troubleshooting
+
+**Build failed on Netlify**
+
+- Open the deploy log; find the first error line.
+- Run `npm run build` locally from the same folder Netlify uses (correct **base directory**).
+- Confirm **Node 20** (see `netlify.toml`); mismatched Node can cause odd failures.
+
+**Blank page or wrong paths**
+
+- In `vite.config.ts`, `base` should stay **`/`** for a site at the domain root. Only change `base` if you deploy under a subpath (e.g. `https://example.com/app/`).
+
+**Refresh on a “route” gives 404**
+
+- Ensure `netlify.toml` redirect block is present and you redeployed after adding it.
+
+**Environment variable undefined in the app**
+
+- Vite only exposes variables prefixed with **`VITE_`** to client code. Redeploy after adding variables.
+
+---
+
+## Quick checklist
+
+- [ ] `npm run build` succeeds locally from the correct folder  
+- [ ] `netlify.toml` is at the same level as `package.json` (or Netlify base directory points to that folder)  
+- [ ] Base directory in Netlify matches your repo layout  
+- [ ] Publish directory is **`dist`**  
+- [ ] Repository is pushed to Git and connected to Netlify  
+
+You are deploy-ready when the checklist passes.

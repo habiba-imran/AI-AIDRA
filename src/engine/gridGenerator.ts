@@ -125,6 +125,7 @@ export function generateInitialVictims(): Victim[] {
       survivalPct: 71,
       eta: null,
       priorityScore: 0.92,
+      rescuedAtSeconds: null,
     },
     {
       id: 'V2',
@@ -136,6 +137,7 @@ export function generateInitialVictims(): Victim[] {
       survivalPct: 58,
       eta: null,
       priorityScore: 0.88,
+      rescuedAtSeconds: null,
     },
     {
       id: 'V3',
@@ -147,6 +149,7 @@ export function generateInitialVictims(): Victim[] {
       survivalPct: 84,
       eta: null,
       priorityScore: 0.61,
+      rescuedAtSeconds: null,
     },
     {
       id: 'V4',
@@ -158,6 +161,7 @@ export function generateInitialVictims(): Victim[] {
       survivalPct: 79,
       eta: null,
       priorityScore: 0.57,
+      rescuedAtSeconds: null,
     },
     {
       id: 'V5',
@@ -169,6 +173,7 @@ export function generateInitialVictims(): Victim[] {
       survivalPct: 93,
       eta: null,
       priorityScore: 0.31,
+      rescuedAtSeconds: null,
     },
   ];
 }
