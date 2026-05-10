@@ -379,7 +379,223 @@ export default function Analytics({ state }: AnalyticsProps) {
         </div>
       </div>
 
+      {/* Section 4: Live KPI Time-Series */}
+      <div className="card-glass p-6 glow-green border border-green-500/20">
+        <SectionLabel color="text-green-400">Live KPI Time-Series (Per-Tick History)</SectionLabel>
+        {state.kpiHistory.length < 2 ? (
+          <div className="text-center text-[#94a3b8] py-8 text-sm">
+            Run the simulation to see time-series KPI charts. Data is recorded every 2 ticks.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            {/* Avg Survival % */}
+            <div className="bg-[#020817]/50 rounded-xl p-4 border border-[#1e293b]">
+              <div className="text-sm font-bold text-[#f1f5f9] mb-1">Avg Victim Survival %</div>
+              <div className="text-xs text-[#64748b] mb-3">Active victims' mean survival over time</div>
+              <SparklineChart
+                data={state.kpiHistory.map((s) => s.avgSurvival)}
+                labels={state.kpiHistory.map((s) => s.tick)}
+                color="#22c55e"
+                maxY={100}
+                height={120}
+                unit="%"
+              />
+            </div>
+            {/* Risk Exposure */}
+            <div className="bg-[#020817]/50 rounded-xl p-4 border border-[#1e293b]">
+              <div className="text-sm font-bold text-[#f1f5f9] mb-1">Risk Exposure Score</div>
+              <div className="text-xs text-[#64748b] mb-3">Cumulative path risk across active routes</div>
+              <SparklineChart
+                data={state.kpiHistory.map((s) => s.riskExposure)}
+                labels={state.kpiHistory.map((s) => s.tick)}
+                color="#ef4444"
+                height={120}
+                unit=" pts"
+              />
+            </div>
+            {/* Rescue Progress */}
+            <div className="bg-[#020817]/50 rounded-xl p-4 border border-[#1e293b]">
+              <div className="text-sm font-bold text-[#f1f5f9] mb-1">Rescue Progress</div>
+              <div className="text-xs text-[#64748b] mb-3">Victims saved (green) vs lost (red) over time</div>
+              <DualSparkline
+                data1={state.kpiHistory.map((s) => s.victimsSaved)}
+                data2={state.kpiHistory.map((s) => s.victimsLost)}
+                labels={state.kpiHistory.map((s) => s.tick)}
+                color1="#22c55e"
+                color2="#ef4444"
+                label1="Saved"
+                label2="Lost"
+                maxY={state.victims.length}
+                height={120}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Section 5: Mission Summary */}
+      {state.missionSummary && (
+        <div className="card-glass p-6 border border-green-500/30 bg-green-500/5">
+          <SectionLabel color="text-green-400">Mission Summary</SectionLabel>
+          <div className="bg-[#020817] rounded-xl p-5 border border-[#1e293b] text-sm text-[#cbd5e1] leading-relaxed">
+            <div className="flex items-start gap-3">
+              <Trophy className="w-6 h-6 text-green-400 shrink-0 mt-0.5" />
+              <p>{state.missionSummary}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
+  );
+}
+
+/** SVG sparkline chart for a single metric over time. */
+function SparklineChart({
+  data,
+  labels,
+  color,
+  maxY: maxYProp,
+  height = 100,
+  unit = '',
+}: {
+  data: number[];
+  labels: number[];
+  color: string;
+  maxY?: number;
+  height?: number;
+  unit?: string;
+}) {
+  const width = 400;
+  const padX = 35;
+  const padY = 20;
+  const chartW = width - padX * 2;
+  const chartH = height - padY * 2;
+  const maxY = maxYProp ?? Math.max(1, ...data) * 1.15;
+  const minY = 0;
+
+  if (data.length < 2) return null;
+
+  const points = data.map((v, i) => ({
+    x: padX + (i / (data.length - 1)) * chartW,
+    y: padY + chartH - ((v - minY) / (maxY - minY)) * chartH,
+    v,
+    tick: labels[i],
+  }));
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+  const areaPath = linePath + ` L${points[points.length - 1].x},${padY + chartH} L${points[0].x},${padY + chartH} Z`;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
+      {/* Y-axis gridlines */}
+      {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+        const y = padY + chartH * (1 - f);
+        const val = Math.round(minY + (maxY - minY) * f);
+        return (
+          <g key={f}>
+            <line x1={padX} y1={y} x2={width - padX} y2={y} stroke="#1e293b" strokeWidth={1} />
+            <text x={padX - 6} y={y + 4} textAnchor="end" fill="#64748b" fontSize={9} fontFamily="JetBrains Mono, monospace">{val}</text>
+          </g>
+        );
+      })}
+      {/* Area fill */}
+      <path d={areaPath} fill={color} opacity={0.08} />
+      {/* Line */}
+      <path d={linePath} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      {/* Start & end dots */}
+      <circle cx={points[0].x} cy={points[0].y} r={3} fill={color} />
+      <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={3} fill={color} />
+      {/* End value label */}
+      <text
+        x={points[points.length - 1].x + 6}
+        y={points[points.length - 1].y + 3}
+        fill={color}
+        fontSize={10}
+        fontFamily="JetBrains Mono, monospace"
+        fontWeight="bold"
+      >
+        {data[data.length - 1].toFixed(1)}{unit}
+      </text>
+      {/* X-axis labels */}
+      {[0, Math.floor(data.length / 2), data.length - 1].map((idx) => (
+        <text key={idx} x={points[idx].x} y={height - 2} textAnchor="middle" fill="#475569" fontSize={8} fontFamily="JetBrains Mono, monospace">
+          t={labels[idx]}s
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+/** Dual sparkline (saved vs lost) for rescue progress. */
+function DualSparkline({
+  data1,
+  data2,
+  labels,
+  color1,
+  color2,
+  label1,
+  label2,
+  maxY: maxYProp,
+  height = 100,
+}: {
+  data1: number[];
+  data2: number[];
+  labels: number[];
+  color1: string;
+  color2: string;
+  label1: string;
+  label2: string;
+  maxY?: number;
+  height?: number;
+}) {
+  const width = 400;
+  const padX = 35;
+  const padY = 20;
+  const chartW = width - padX * 2;
+  const chartH = height - padY * 2;
+  const maxY = maxYProp ?? Math.max(1, ...data1, ...data2) * 1.15;
+
+  if (data1.length < 2) return null;
+
+  const toPoints = (data: number[]) =>
+    data.map((v, i) => ({
+      x: padX + (i / (data.length - 1)) * chartW,
+      y: padY + chartH - (v / maxY) * chartH,
+      v,
+    }));
+
+  const pts1 = toPoints(data1);
+  const pts2 = toPoints(data2);
+  const path1 = pts1.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+  const path2 = pts2.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
+      {[0, 0.5, 1].map((f) => {
+        const y = padY + chartH * (1 - f);
+        const val = Math.round(maxY * f);
+        return (
+          <g key={f}>
+            <line x1={padX} y1={y} x2={width - padX} y2={y} stroke="#1e293b" strokeWidth={1} />
+            <text x={padX - 6} y={y + 4} textAnchor="end" fill="#64748b" fontSize={9} fontFamily="JetBrains Mono, monospace">{val}</text>
+          </g>
+        );
+      })}
+      <path d={path1} fill="none" stroke={color1} strokeWidth={2} strokeLinejoin="round" />
+      <path d={path2} fill="none" stroke={color2} strokeWidth={2} strokeLinejoin="round" />
+      <circle cx={pts1[pts1.length - 1].x} cy={pts1[pts1.length - 1].y} r={3} fill={color1} />
+      <circle cx={pts2[pts2.length - 1].x} cy={pts2[pts2.length - 1].y} r={3} fill={color2} />
+      {/* Legend */}
+      <circle cx={padX + 10} cy={padY - 8} r={3} fill={color1} />
+      <text x={padX + 18} y={padY - 5} fill={color1} fontSize={9} fontFamily="JetBrains Mono, monospace">{label1}: {data1[data1.length - 1]}</text>
+      <circle cx={padX + 100} cy={padY - 8} r={3} fill={color2} />
+      <text x={padX + 108} y={padY - 5} fill={color2} fontSize={9} fontFamily="JetBrains Mono, monospace">{label2}: {data2[data2.length - 1]}</text>
+      {[0, Math.floor(data1.length / 2), data1.length - 1].map((idx) => (
+        <text key={idx} x={pts1[idx].x} y={height - 2} textAnchor="middle" fill="#475569" fontSize={8} fontFamily="JetBrains Mono, monospace">
+          t={labels[idx]}s
+        </text>
+      ))}
+    </svg>
   );
 }

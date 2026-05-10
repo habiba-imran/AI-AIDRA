@@ -21,10 +21,10 @@
 \title{Adaptive Intelligent Disaster Response Agent (AIDRA):\\
 A Comprehensive Hybrid AI System for Dynamic Urban Evacuation and Resource Allocation}
 
-\author{\IEEEauthorblockN{First Member Name, Second Member Name}
+\author{\IEEEauthorblockN{Umm-e-Habiba Imran}
 \IEEEauthorblockA{Department of Computer Science\\
-University Name\\
-Email: student1@domain.edu, student2@domain.edu}}
+Bahria University, Islamabad\\
+01-134241-048}}
 
 \maketitle
 
@@ -144,11 +144,18 @@ The network minimizes the Categorical Cross-Entropy Loss function over 100 epoch
 
 \begin{figure}[htbp]
 \centering
-% PLACEHOLDER: Insert ML Loss Curve / Confusion Matrix
-\includegraphics[width=0.48\textwidth]{example-image-a}
-\caption{ML Studio Interface displaying the architectural evaluation, classification metrics, and ROC characteristics of the trained models.}
+\includegraphics[width=0.48\textwidth]{architecture.png}
+\caption{High-Level System Architecture Diagram illustrating the Sense-Think-Act feedback loop across the Environment, ML Risk Pipeline, CSP Allocator, and Fuzzy-Modulated A* Planner.}
+\label{fig:arch_diagram}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.48\textwidth]{fig dddd.png}
+\caption{ML Studio Interface displaying the classification metrics and ROC characteristics of the trained models.}
 \label{fig:ml_eval}
 \end{figure}
+
 
 \subsection{ML Pipeline Results}
 Table \ref{tab:ml_metrics} presents the empirical results of the classifier evaluation on the 20\% holdout set. The MLP demonstrated vastly superior representation learning, achieving 89\% accuracy and a Macro F1-Score of 0.88, effectively capturing the nonlinear interplay between the geographic and environmental features. Notably, Feature Importance analysis extracted from the MLP ranked \texttt{distance\_to\_hazard} (0.82 importance score) and \texttt{victim\_severity} (0.78 importance score) as the most crucial predictive markers. Consequently, the MLP is deployed as the live inference engine during active simulation.
@@ -189,7 +196,7 @@ To solve this combinatorial problem efficiently, AIDRA implements a recursive ba
     \item \textbf{Forward Checking:} Upon assigning a victim to an ambulance, the algorithm immediately prunes that victim from the domains of all other resources, detecting inevitable constraint violations before traversing deep into invalid branches.
 \end{enumerate}
 
-\begin{algorithm}[H]
+\begin{algorithm}
 \caption{Recursive CSP Backtracking with Forward Checking}
 \label{alg:csp}
 \begin{algorithmic}[1]
@@ -233,10 +240,11 @@ MRV Only & 11 & 128 & 34.0 \\
 \begin{figure}[htbp]
 \centering
 % PLACEHOLDER: Insert CSP Solver / Matrix Screenshot Here
-\includegraphics[width=0.48\textwidth]{example-image-b}
+\includegraphics[width=0.48\textwidth]{replace.png}
 \caption{The CSP Solver visualizer demonstrating the successful satisfaction of all hard constraints and the resulting operational roster.}
 \label{fig:csp_trace}
 \end{figure}
+
 
 \section{Local Search Optimization: Simulated Annealing}
 While CSP Backtracking successfully resolves the 5-victim constraint map in milliseconds, scaling the disaster to 50 or 100 victims renders traditional depth-first assignment computationally intractable. To account for this, we propose an alternative optimization pathway using Local Search, specifically Simulated Annealing (SA).
@@ -300,7 +308,7 @@ The system continuously samples the environment to derive three crisp variables,
 \begin{figure}[htbp]
 \centering
 % PLACEHOLDER: Insert Fuzzy Inference / Analytics Screenshot Here
-\includegraphics[width=0.48\textwidth]{example-image-c}
+\includegraphics[width=0.48\textwidth]{Screenshot 2026-05-10 fig c.png}
 \caption{Analytics dashboard tracking objective trade-offs (Risk vs. Time) and Fuzzy Logic state adjustments dynamically triggered during runtime.}
 \label{fig:analytics_tradeoff}
 \end{figure}
@@ -352,8 +360,9 @@ Our empirical findings confirm that classical Constraint Satisfaction Problems m
 All source code, including the React/TypeScript UI architecture, the AI simulation engine, and comprehensive algorithmic traces, are publicly available. 
 
 \begin{itemize}
-    \item \textbf{GitHub Source Code Repository:} \url{https://github.com/placeholder-org/aidra}
-    \item \textbf{Two-Minute Video Demonstration:} \url{https://linkedin.com/in/placeholder-demo}
+    \item \textbf{GitHub Source Code Repository:} \url{<YOUR_GITHUB_REPO_URL>}
+    \item \textbf{Deployed Demo:} \url{<YOUR_DEPLOYED_URL>}
+    \item \textbf{Two-Minute Video Demonstration (LinkedIn):} \url{<YOUR_LINKEDIN_VIDEO_URL>}
 \end{itemize}
 The video outlines the system flow, demonstrates the dynamic replanning functionality in response to environmental events, and highlights the performance metrics dashboards.
 

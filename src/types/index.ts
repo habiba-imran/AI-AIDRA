@@ -267,6 +267,20 @@ export interface SimulationState {
   fuzzySnapshot: FuzzyRoutingSnapshot | null;
   /** Shared coordinate target for UI interaction (click-to-target). */
   selectedCell: { row: number; col: number } | null;
+  /** Per-tick KPI snapshots for time-series sparkline charts. */
+  kpiHistory: KpiSnapshot[];
+  /** Generated once when all victims are resolved (rescued or lost). null until then. */
+  missionSummary: string | null;
+}
+
+/** Single snapshot recorded every N ticks for time-series KPI charts. */
+export interface KpiSnapshot {
+  tick: number;
+  victimsSaved: number;
+  victimsLost: number;
+  avgSurvival: number;
+  riskExposure: number;
+  kitsRemaining: number;
 }
 
 // CSP Variable

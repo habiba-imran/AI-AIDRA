@@ -884,6 +884,8 @@ function buildInitialState(): SimulationState {
     victimMlEstimates: {},
     fuzzySnapshot: null,
     selectedCell: null,
+    kpiHistory: [],
+    missionSummary: null,
   };
   return recomputeDerived(base);
 }
@@ -1981,6 +1983,99 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
         decisionLog: [...state.decisionLog, ...tickLogs],
         toasts: [...state.toasts, ...newToasts],
       };
+
+      /**
+       * KPI history snapshot: record every 2 ticks for time-series sparklines.
+       * Keeps memory bounded (~150 entries for a 5-minute run) while providing
+       * good visual resolution for survival decay and risk curves.
+       */
+      const tickNum = next.elapsedSeconds;
+      if (tickNum % 2 === 0 || tickNum === 1) {
+        const activeVictims = victims.filter(
+          (v) => v.status !== 'rescued' && v.status !== 'lost'
+        );
+        const avgSurv =
+          activeVictims.length > 0
+            ? activeVictims.reduce((s, v) => s + v.survivalPct, 0) / activeVictims.length
+            : 0;
+        const snap = {
+          tick: tickNum,
+          victimsSaved: victims.filter((v) => v.status === 'rescued').length,
+          victimsLost: victims.filter((v) => v.status === 'lost').length,
+          avgSurvival: Math.round(avgSurv * 10) / 10,
+          riskExposure: Math.round(
+            computeRiskExposureScore(next.grid, ambulances, rescueTeam) * 10
+          ) / 10,
+          kitsRemaining: next.kitsRemaining,
+        };
+        next.kpiHistory = [...state.kpiHistory, snap];
+      } else {
+        next.kpiHistory = state.kpiHistory;
+      }
+
+      /**
+       * Mission summary: generated once when every victim is either rescued or lost.
+       * Provides a single-paragraph conclusion for the rubric's "per-run summary".
+       */
+      if (state.missionSummary == null) {
+        const allResolved = victims.every(
+          (v) => v.status === 'rescued' || v.status === 'lost'
+        );
+        if (allResolved && victims.length > 0) {
+          const saved = victims.filter((v) => v.status === 'rescued').length;
+          const lost = victims.filter((v) => v.status === 'lost').length;
+          const total = victims.length;
+          const algoLabel =
+            state.searchAlgorithm === 'Astar' ? 'A*' : state.searchAlgorithm;
+          const objLabel =
+            state.objectivePriority === 'MinimizeRisk'
+              ? 'Minimize Risk'
+              : state.objectivePriority === 'MinimizeTime'
+                ? 'Minimize Time'
+                : 'Balanced';
+          const fuzzyStr = state.fuzzyLogicEnabled ? 'Fuzzy ON' : 'Fuzzy OFF';
+          const rescuedStamps = victims
+            .filter((v) => v.rescuedAtSeconds != null)
+            .map((v) => v.rescuedAtSeconds as number);
+          const avgT =
+            rescuedStamps.length > 0
+              ? Math.round(
+                  rescuedStamps.reduce((a, b) => a + b, 0) / rescuedStamps.length
+                )
+              : 0;
+          const summaryText =
+            `🏁 MISSION COMPLETE — ${saved}/${total} victims rescued, ${lost} lost. ` +
+            `Strategy: ${algoLabel} + ${objLabel} + ${fuzzyStr} + ${state.mlModel}. ` +
+            `Avg rescue time: ${formatTime(avgT)}. ` +
+            `Replans: ${state.replanCount}. ` +
+            `Kits used: ${state.kitsBudget - next.kitsRemaining}/${state.kitsBudget}. ` +
+            `Risk exposure: ${Math.round(computeRiskExposureScore(next.grid, ambulances, rescueTeam))} pts. ` +
+            (saved === total
+              ? 'All victims saved — optimal outcome.'
+              : lost > 0
+                ? `${lost} victim(s) lost to survival depletion before pickup.`
+                : '');
+          next.missionSummary = summaryText;
+          tickLogs.push({
+            id: generateId(),
+            timestamp: formatTime(next.elapsedSeconds),
+            text: summaryText,
+            type: 'success',
+          });
+          next.decisionLog = [...state.decisionLog, ...tickLogs];
+          newToasts.push({
+            id: generateId(),
+            type: saved === total ? 'success' : 'warning',
+            message: `🏁 Mission complete — ${saved}/${total} rescued`,
+            timestamp: Date.now(),
+          });
+          next.toasts = [...state.toasts, ...newToasts];
+        } else {
+          next.missionSummary = null;
+        }
+      } else {
+        next.missionSummary = state.missionSummary;
+      }
 
       /**
        * Wave dispatch: if any ambulance just transitioned to `idle` this tick (i.e. it

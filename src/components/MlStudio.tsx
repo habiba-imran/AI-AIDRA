@@ -82,6 +82,70 @@ function buildMasterRows(snap: MlEvalSnapshot | null): Array<{ metric: string; k
   ];
 }
 
+function ConfusionMatrixHeatmap({ matrix, labels }: { matrix: number[][]; labels: string[] }) {
+  const maxVal = Math.max(1, ...matrix.flat());
+  return (
+    <div className="mt-4">
+      <div className="text-xs font-bold text-[#94a3b8] mb-2 uppercase tracking-wider">Confusion Matrix</div>
+      <div className="bg-[#020817] rounded-lg p-3 border border-[#1e293b]">
+        <div className="text-[8px] text-[#64748b] text-center font-bold uppercase tracking-widest mb-1">Predicted →</div>
+        <div className="flex">
+          <div className="flex flex-col justify-center mr-1.5 gap-0">
+            <div className="text-[7px] text-[#64748b] font-bold uppercase tracking-widest -rotate-90 whitespace-nowrap origin-center" style={{ height: 0, position: 'relative', top: '50%', left: '-8px' }}>
+              Actual
+            </div>
+          </div>
+          <div className="flex-1">
+            {/* Column headers */}
+            <div className="flex ml-[52px] mb-1">
+              {labels.map((l) => (
+                <div key={`h-${l}`} className="flex-1 text-center text-[8px] text-[#94a3b8] font-bold truncate px-0.5">{l}</div>
+              ))}
+            </div>
+            {/* Rows */}
+            {matrix.map((row, ri) => (
+              <div key={ri} className="flex items-center gap-0 mb-0.5">
+                <div className="w-[52px] shrink-0 text-right text-[8px] text-[#94a3b8] font-bold pr-2 truncate">{labels[ri]}</div>
+                {row.map((val, ci) => {
+                  const intensity = val / maxVal;
+                  const isDiagonal = ri === ci;
+                  const bgColor = isDiagonal
+                    ? `rgba(34, 197, 94, ${0.15 + intensity * 0.65})`
+                    : `rgba(239, 68, 68, ${0.05 + intensity * 0.45})`;
+                  const textColor = isDiagonal ? '#4ade80' : intensity > 0.3 ? '#fca5a5' : '#94a3b8';
+                  return (
+                    <div
+                      key={ci}
+                      className="flex-1 aspect-square flex items-center justify-center rounded-md mx-0.5 border border-[#1e293b]/50 transition-all"
+                      style={{ backgroundColor: bgColor, minHeight: '28px' }}
+                    >
+                      <span className="text-xs font-mono-display font-bold" style={{ color: textColor }}>
+                        {val}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-center gap-4 mt-2 pt-2 border-t border-[#1e293b]">
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded" style={{ backgroundColor: 'rgba(34,197,94,0.5)' }} />
+            <span className="text-[8px] text-[#94a3b8]">Correct (diagonal)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded" style={{ backgroundColor: 'rgba(239,68,68,0.3)' }} />
+            <span className="text-[8px] text-[#94a3b8]">Misclassified</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CM_LABELS = ['Low Risk', 'Med Risk', 'High Risk'];
+
 function modelEvalCard(report: MlModelEvalReport, borderGlow: string) {
   const title =
     report.modelId === 'kNN'
@@ -114,7 +178,11 @@ function modelEvalCard(report: MlModelEvalReport, borderGlow: string) {
           ))}
         </tbody>
       </table>
-      <div className="text-sm space-y-2 bg-[#020817]/50 rounded-lg p-3 border border-[#1e293b]">
+      {/* Confusion Matrix Heatmap */}
+      {report.confusionMatrix && report.confusionMatrix.length === 3 && (
+        <ConfusionMatrixHeatmap matrix={report.confusionMatrix} labels={CM_LABELS} />
+      )}
+      <div className="text-sm space-y-2 bg-[#020817]/50 rounded-lg p-3 border border-[#1e293b] mt-4">
         <div className="flex items-center gap-3">
           <span className="text-[#94a3b8] w-32">Accuracy:</span>
           <span className="text-[#f1f5f9] font-bold">{(report.accuracy * 100).toFixed(1)}%</span>

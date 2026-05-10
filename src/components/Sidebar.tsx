@@ -23,7 +23,7 @@ export default function Sidebar({
   const displayTime = hh !== '00' ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
 
   // USER: Update your links here
-  const GITHUB_LINK = "https://github.com"; 
+  const GITHUB_LINK = "https://github.com/habiba-imran/AI-AIDRA";
   const LINKEDIN_LINK = "https://linkedin.com";
 
   return (
@@ -55,7 +55,7 @@ export default function Sidebar({
               `}
             >
               {Icon && <Icon className="w-[18px] h-[18px]" />}
-              
+
               {/* Tooltip */}
               <div className="absolute left-full ml-4 px-2 py-1 bg-[#020817] text-[#f1f5f9] text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 border border-[#1e293b] shadow-2xl">
                 {tab.label}
@@ -72,7 +72,7 @@ export default function Sidebar({
           <button className="w-9 h-9 flex items-center justify-center rounded-xl text-[#64748b] hover:bg-[#1e293b] hover:text-[#f1f5f9] transition-all cursor-pointer">
             <Download className="w-[18px] h-[18px]" />
           </button>
-          
+
           {/* Tooltip */}
           <div className="absolute left-full top-1/2 -translate-y-1/2 ml-4 px-2 py-1 bg-[#020817] text-[#f1f5f9] text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 border border-[#1e293b]">
             Downloads
@@ -127,7 +127,7 @@ export default function Sidebar({
           <span className="text-[8px] text-[#64748b] font-bold uppercase tracking-widest mt-[-2px]">
             ELAPSED
           </span>
-          
+
           {/* Tooltip */}
           <div className="absolute left-full top-1/2 -translate-y-1/2 ml-4 px-2 py-1 bg-[#020817] text-[#f1f5f9] text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 border border-[#1e293b] shadow-2xl">
             Simulation Runtime
