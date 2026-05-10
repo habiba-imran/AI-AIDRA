@@ -24,7 +24,7 @@ export default function Sidebar({
 
   // USER: Update your links here
   const GITHUB_LINK = "https://github.com/habiba-imran/AI-AIDRA";
-  const LINKEDIN_LINK = "https://shorturl.at/L2BfO";
+  const LINKEDIN_LINK = "https://www.linkedin.com/posts/habiba-imran-118624258_ai-disasterresponse-innovation-ugcPost-7459292349840596993-i9N3?utm_source=share&utm_medium=member_desktop&rcm=ACoAAD9zxaQBvhQ8gQE3WAF83vbfdQ-jTaT7DUk";
 
   return (
     <aside className="w-16 flex flex-col items-center py-4 bg-[#0a0f1e] border-r border-[#1e293b] shrink-0 z-50 h-screen">
@@ -81,11 +81,11 @@ export default function Sidebar({
           {/* Popup Menu */}
           <div className="absolute left-full top-0 ml-3 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all duration-150 z-[100]">
             <div className="bg-[#020817] border border-[#1e293b] rounded-lg p-1.5 shadow-2xl min-w-[140px] flex flex-col gap-1">
-              <a href="/assignment.pdf" download className="flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#f1f5f9] transition-colors">
+              <a href="/assignment.pdf" download="AIDRA_Assignment_Report.pdf" className="flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#f1f5f9] transition-colors">
                 <FileText className="w-4 h-4 text-red-400" />
                 <span className="text-[10px] font-bold whitespace-nowrap">Download Report</span>
               </a>
-              <a href="/presentation.pptx" download className="flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#f1f5f9] transition-colors">
+              <a href="/presentation.pptx" download="AIDRA_Presentation.pptx" className="flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#f1f5f9] transition-colors">
                 <Presentation className="w-4 h-4 text-blue-400" />
                 <span className="text-[10px] font-bold whitespace-nowrap">Download PPT</span>
               </a>
