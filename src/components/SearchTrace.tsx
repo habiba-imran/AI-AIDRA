@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { SkipBack, ChevronLeft, ChevronRight, Play, Zap, Shield, Scale } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SkipBack, ChevronLeft, ChevronRight, Play, Zap, Shield, Scale, ChevronUp, ChevronDown, Download, Trash2 } from 'lucide-react';
 import type {
   AlgoComparison,
   GridCell,
@@ -12,7 +12,7 @@ import type {
   TradeOffStrategy,
   Victim,
 } from '../types';
-import { runSearch } from '../engine/search';
+import { runMultiVictimSearch, type MultiVictimSearchResult } from '../engine/search';
 
 const TRACE_GRID = 18;
 
@@ -174,17 +174,9 @@ interface SearchTraceProps {
   grid: GridCell[][];
   victims: Victim[];
   objectivePriority: ObjectivePriority;
-  /**
-   * Latest local-search polish result (HC or SA). The simulator runs this on top of the
-   * global search every time `runSearchPlanningPatch` fires, but the value sat unused in
-   * state until now. Showing it here closes the loop on the rubric's "local search at
-   * least one — Hill Climbing or Simulated Annealing for alternative optimization".
-   */
   localSearchResult: LocalSearchResult | null;
-  /** Active local-search algorithm (controlled by AI Config dropdown). */
   localSearchAlgorithm: LocalSearch;
   onRunSearch: (algo: SearchAlgorithm) => void;
-  /** Phase 5: fuzzy-adjusted edge costs (1 = crisp). */
   fuzzyRiskStep: number;
   fuzzyHeuristicWeight: number;
 }
@@ -205,48 +197,48 @@ export default function SearchTrace({
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<'Slow' | '1×' | 'Fast'>('1×');
-  const [localResult, setLocalResult] = useState<SearchResult | null>(null);
+  const [mvResult, setMvResult] = useState<MultiVictimSearchResult | null>(null);
+  const [isLogExpanded, setIsLogExpanded] = useState(false);
+  
+  const logScrollRef = useRef<HTMLDivElement>(null);
 
   const runForAlgo = useCallback(
     (algo: SearchAlgorithm) => {
       if (grid.length === 0) return;
-      const r = runSearch(
-        algo,
-        grid,
-        0,
-        0,
-        0,
-        17,
-        objectivePriority,
-        fuzzyRiskStep,
-        fuzzyHeuristicWeight
+      const r = runMultiVictimSearch(
+        algo, grid, victims, 0, 0,
+        objectivePriority, fuzzyRiskStep, fuzzyHeuristicWeight
       );
       setActiveAlgo(algo);
-      setLocalResult(r);
+      setMvResult(r);
       setCurrentStep(0);
       setIsPlaying(false);
       onRunSearch(algo);
     },
-    [grid, objectivePriority, onRunSearch, fuzzyRiskStep, fuzzyHeuristicWeight]
+    [grid, victims, objectivePriority, onRunSearch, fuzzyRiskStep, fuzzyHeuristicWeight]
   );
 
   useEffect(() => {
     if (grid.length === 0) return;
-    setLocalResult(
-      runSearch(activeAlgo, grid, 0, 0, 0, 17, objectivePriority, fuzzyRiskStep, fuzzyHeuristicWeight)
+    setMvResult(
+      runMultiVictimSearch(activeAlgo, grid, victims, 0, 0, objectivePriority, fuzzyRiskStep, fuzzyHeuristicWeight)
     );
     setCurrentStep(0);
-  }, [grid, objectivePriority, activeAlgo, fuzzyRiskStep, fuzzyHeuristicWeight]);
+  }, [grid, victims, objectivePriority, activeAlgo, fuzzyRiskStep, fuzzyHeuristicWeight]);
 
-  const displayResult =
-    searchResult &&
-    searchResult.algorithm === activeAlgo &&
-    searchResult.steps.length > 0
-      ? searchResult
-      : localResult;
-  const steps = displayResult?.steps ?? [];
+  const steps = mvResult?.steps ?? [];
   const step = steps[currentStep];
   const maxStepIdx = Math.max(0, steps.length - 1);
+
+  // Compute which victims have been rescued up to the current step
+  const rescuedVictimIds = useMemo(() => {
+    if (!mvResult) return new Set<string>();
+    const ids = new Set<string>();
+    for (const [stepIdx, vid] of Object.entries(mvResult.rescuedAtStep)) {
+      if (Number(stepIdx) <= currentStep) ids.add(vid);
+    }
+    return ids;
+  }, [mvResult, currentStep]);
 
   useEffect(() => {
     if (!isPlaying || steps.length === 0) return undefined;
@@ -263,6 +255,11 @@ export default function SearchTrace({
     }, ms);
     return () => window.clearInterval(id);
   }, [isPlaying, playbackSpeed, steps.length, maxStepIdx]);
+
+  useEffect(() => {
+    const el = logScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [currentStep, isLogExpanded]);
 
   const emptySnapshot = useMemo(() => {
     const empty: NodeState[][] = [];
@@ -300,14 +297,14 @@ export default function SearchTrace({
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Top Control Bar */}
-      <div className="shrink-0 bg-[#0f172a] border-b border-[#1e293b] px-4 py-2.5 flex items-center justify-between">
+      <div className="shrink-0 bg-[#0f172a] border-b border-[#1e293b] px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-4">
         {/* Left: Algorithm selector */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap justify-center">
           {(Object.entries(algoConfig) as [SearchAlgorithm, (typeof algoConfig)[SearchAlgorithm]][]).map(([key, cfg]) => (
             <button
               key={key}
               onClick={() => runForAlgo(key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap ${
                 activeAlgo === key
                   ? 'text-[#f1f5f9]'
                   : 'bg-transparent border border-[#334155] text-[#94a3b8] hover:bg-[#1e293b]'
@@ -321,14 +318,14 @@ export default function SearchTrace({
         </div>
 
         {/* Center: Playback controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-center">
           <button
             type="button"
             onClick={() => {
               setCurrentStep(0);
               setIsPlaying(false);
             }}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#334155] text-[#94a3b8] text-[10px] hover:bg-[#1e293b] transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#334155] text-[#94a3b8] text-[10px] hover:bg-[#1e293b] transition-colors cursor-pointer whitespace-nowrap"
           >
             <SkipBack className="w-3.5 h-3.5" /> Reset
           </button>
@@ -337,24 +334,24 @@ export default function SearchTrace({
             onClick={() => setCurrentStep((prev) => Math.max(prev - 1, 0))}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#334155] text-[#94a3b8] text-[10px] hover:bg-[#1e293b] transition-colors cursor-pointer"
           >
-            <ChevronLeft className="w-3.5 h-3.5" /> Step Back
+            <ChevronLeft className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
             onClick={() => setCurrentStep((prev) => Math.min(prev + 1, maxStepIdx))}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#334155] text-[#94a3b8] text-[10px] hover:bg-[#1e293b] transition-colors cursor-pointer"
           >
-            Step Fwd <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
             onClick={() => setIsPlaying((p) => !p)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#3b82f6] text-[#f1f5f9] text-[10px] glow-blue hover:bg-[#2563eb] transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#3b82f6] text-[#f1f5f9] text-[10px] glow-blue hover:bg-[#2563eb] transition-colors cursor-pointer whitespace-nowrap"
           >
-            <Play className="w-3.5 h-3.5" /> Auto Play
+            <Play className="w-3.5 h-3.5" /> {isPlaying ? 'Pause' : 'Auto Play'}
           </button>
-          <div className="flex items-center gap-1 ml-2">
-            <span className="text-[9px] text-[#64748b] mr-1">Speed:</span>
+          <div className="flex items-center gap-1 sm:ml-2">
+            <span className="text-[9px] text-[#64748b] hidden sm:inline">Speed:</span>
             {(['Slow', '1×', 'Fast'] as const).map((s) => (
               <button
                 type="button"
@@ -373,34 +370,33 @@ export default function SearchTrace({
         </div>
 
         {/* Right: Step info */}
-        <div className="flex flex-col items-end gap-0.5">
-          <span className="font-mono-display text-[15px] text-[#3b82f6] font-bold">
-            Step: {steps.length === 0 ? 0 : currentStep + 1} / {steps.length}
+        <div className="flex items-center md:items-end gap-4 md:flex-col md:gap-0.5">
+          <span className="font-mono-display text-[15px] text-[#3b82f6] font-bold whitespace-nowrap">
+            Step: {steps.length === 0 ? 0 : currentStep + 1}/{steps.length}
           </span>
           <div className="flex items-center gap-2">
-            <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 badge-glow-amber">
-              {isPlaying ? 'PLAYING…' : 'SEARCHING...'}
+            <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 badge-glow-amber whitespace-nowrap">
+              {isPlaying ? 'PLAYING…' : 'READY'}
             </span>
-            <span className="text-[9px] text-[#64748b]">
-              {displayResult?.found
-                ? `Solution: cost ${displayResult.pathCost.toFixed(1)}`
-                : 'Solution: Not Found Yet'}
+            <span className="text-[9px] text-[#64748b] hidden lg:inline">
+              {mvResult?.found
+                ? `Cost: ${mvResult.totalCost.toFixed(1)} · ${mvResult.rescueOrder.length} rescued`
+                : 'Searching...'}
             </span>
           </div>
         </div>
       </div>
 
       {/* Main Body: Responsive 3-column grid */}
-      <div className="flex-1 min-h-0 overflow-hidden grid grid-cols-1 xl:grid-cols-3">
+      <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 xl:grid-cols-3">
         {/* Left Column: Square visualizer */}
         <div className="flex flex-col min-h-0 xl:border-r border-[#1e293b] overflow-y-auto p-4">
           <SectionLabel>Search Expansion Visualizer</SectionLabel>
-          <p className="text-[10px] text-[#64748b] mb-2">Watching A* explore the disaster zone grid</p>
 
           {/* Search Grid - forced square container */}
           <div className="flex justify-center mb-2 w-full">
-            <div className="w-full max-w-[402px]">
-              <div className="flex ml-[18px]">
+            <div className="w-full max-w-[clamp(280px,80dvh,500px)]">
+              <div className="flex ml-[1.2rem]">
                 {Array.from({ length: TRACE_GRID }, (_, c) => (
                   <div key={`x-${c}`} className="text-[7px] text-[#475569] font-mono-display text-center flex-1">
                     {c}
@@ -408,7 +404,7 @@ export default function SearchTrace({
                 ))}
               </div>
               <div className="flex">
-                <div className="flex flex-col mr-1 w-[18px]">
+                <div className="flex flex-col mr-1 w-[1.2rem]">
                   {Array.from({ length: TRACE_GRID }, (_, r) => (
                     <div key={`y-${r}`} className="text-[7px] text-[#475569] font-mono-display flex items-center justify-end flex-1">
                       {r}
@@ -461,19 +457,25 @@ export default function SearchTrace({
                       {(rawState === 'visited' || rawState === 'frontier') && fVal != null && (
                         <span className="font-mono-display text-[8px] text-[#f1f5f9]/60 select-none">{fVal.toFixed(0)}</span>
                       )}
-                      {victim && (
-                        <div
-                          className={`absolute w-3.5 h-3.5 rounded-full flex items-center justify-center text-[6px] font-bold text-[#f1f5f9] z-20 ${
-                            victim.severity === 'critical'
-                              ? 'bg-red-500 badge-glow-red'
-                              : victim.severity === 'moderate'
-                                ? 'bg-amber-500 badge-glow-amber'
-                                : 'bg-green-500 badge-glow-green'
-                          }`}
-                        >
-                          {victim.id}
-                        </div>
-                      )}
+                      {victim && (() => {
+                        const isRescued = rescuedVictimIds.has(victim.id);
+                        return (
+                          <div
+                            className={`absolute w-3.5 h-3.5 rounded-full flex items-center justify-center text-[6px] font-bold z-20 ${
+                              isRescued
+                                ? 'bg-emerald-600 text-white ring-1 ring-emerald-400'
+                                : victim.severity === 'critical'
+                                  ? 'bg-red-500 badge-glow-red text-[#f1f5f9]'
+                                  : victim.severity === 'moderate'
+                                    ? 'bg-amber-500 badge-glow-amber text-[#f1f5f9]'
+                                    : 'bg-green-500 badge-glow-green text-[#f1f5f9]'
+                            }`}
+                            style={isRescued ? { opacity: 0.5 } : undefined}
+                          >
+                            {isRescued ? '✓' : victim.id}
+                          </div>
+                        );
+                      })()}
                       {rawState === 'current' && (
                         <span className="absolute inset-0 rounded-sm border-2 border-[#f1f5f9]/60 animate-pulse-dot" />
                       )}
@@ -486,93 +488,90 @@ export default function SearchTrace({
           </div>
 
           {/* Live stat pills */}
-          <div className="flex items-center gap-2 justify-center flex-wrap">
+          <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-2 gap-2 mt-auto pt-2">
             {[
-              { dot: 'bg-blue-500', label: 'Visited', value: `${step?.nodesVisited ?? 0} nodes` },
-              { dot: 'bg-amber-500', label: 'Frontier', value: `${step?.frontierSize ?? 0} nodes` },
-              { dot: 'bg-green-500', label: 'Path Length', value: `${step?.pathLength ?? 0} steps` },
-              { dot: 'bg-[#64748b]', label: 'Solution Cost', value: step?.solutionCost ? step.solutionCost.toFixed(1) : '0' },
+              { dot: 'bg-blue-500', label: 'Visited', value: `${step?.nodesVisited ?? 0}`, unit: 'nodes' },
+              { dot: 'bg-emerald-500', label: 'Rescued', value: `${rescuedVictimIds.size}/${victims.filter(v => v.status !== 'rescued' && v.status !== 'lost').length}`, unit: 'victims' },
+              { dot: 'bg-green-500', label: 'Path Length', value: `${step?.pathLength ?? 0}`, unit: 'steps' },
+              { dot: 'bg-purple-500', label: 'Total Cost', value: step?.solutionCost ? step.solutionCost.toFixed(1) : '0', unit: 'units' },
             ].map((stat) => (
-              <div key={stat.label} className="flex items-center gap-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-2 py-1">
-                <span className={`w-2 h-2 rounded-full ${stat.dot}`} />
-                <span className="text-[9px] text-[#94a3b8]">{stat.label}:</span>
-                <span className="text-[10px] text-[#f1f5f9] font-semibold">{stat.value}</span>
+              <div key={stat.label} className="flex flex-col bg-[#0f172a]/50 border border-[#1e293b] rounded-lg px-2.5 py-1.5 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${stat.dot}`} />
+                  <span className="text-[8px] font-bold text-[#64748b] uppercase tracking-wider">{stat.label}</span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-[11px] text-[#f1f5f9] font-bold font-mono-display">{stat.value}</span>
+                  <span className="text-[8px] text-[#475569]">{stat.unit}</span>
+                </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Middle Column: Logs + heuristic details */}
-        <div className="flex flex-col min-h-0 xl:border-r border-[#1e293b] overflow-hidden p-4">
-          <SectionLabel>Node Expansion Log</SectionLabel>
-          <p className="text-[10px] text-[#64748b] mb-2">Real-time trace of search decisions</p>
-
-          <div className="bg-[#020817] rounded-lg border border-[#1e293b] p-3 flex-1 overflow-y-auto font-mono-display text-[10px] space-y-1 min-h-[220px] leading-relaxed">
-            {steps.slice(0, currentStep + 1).map((s, idx) => (
-              <div
-                key={`${s.stepNumber}-${idx}`}
-                className={`${logColorMap[s.logType]} ${idx === currentStep ? 'border-l-2 border-[#3b82f6] pl-2 bg-[#1e293b]/30' : ''}`}
-              >
-                <span className="text-[#64748b]">[Step {String(s.stepNumber).padStart(2, '0')}]</span> {s.logText}
-              </div>
-            ))}
-          </div>
-
-          {/* Heuristic Info Card */}
-          <div className="card-glass p-3 mt-2 border-glow-left-purple shrink-0">
-            <div className="text-[10px] font-semibold tracking-[0.15em] text-purple-400 uppercase mb-2">Heuristic Analysis</div>
-            <div className="font-mono-display text-[10px] space-y-1">
-              <div><span className="text-[#64748b]">h(n) formula:  </span><span className="text-[#f1f5f9]">Manhattan Distance + Risk Penalty</span></div>
-              <div><span className="text-[#64748b]">h(n) example:  </span><span className="text-[#f1f5f9]">|row-goal| + |col-goal| + (risk×5)</span></div>
-              <div><span className="text-[#64748b]">Admissible:    </span><span className="text-green-400">✅ Yes — never overestimates</span></div>
-              <div><span className="text-[#64748b]">Consistent:    </span><span className="text-green-400">✅ Yes — satisfies triangle inequality</span></div>
-              <div><span className="text-[#64748b]">Weight (ε):    </span><span className="text-[#f1f5f9]">1.0 (standard A*)</span></div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Algorithm comparison and trade-offs */}
-        <div className="flex flex-col min-h-0 overflow-hidden p-4 gap-1.5">
+        {/* Middle Column: Comparison + Heuristic */}
+        <div className="flex flex-col min-h-0 xl:border-r border-[#1e293b] overflow-y-auto p-4">
           <SectionLabel>Search Algorithm Comparison</SectionLabel>
-          <div className="card-glass p-2 overflow-hidden h-[190px] flex flex-col">
-            <div className="overflow-y-auto flex-1">
-              <table className="w-full text-[9px] table-fixed">
+          <div className="card-glass overflow-hidden flex flex-col mb-4 shadow-lg border-[#334155]/30">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="text-[#64748b] text-[9px] uppercase tracking-wider">
-                    <th className="text-left py-1.5 font-medium w-[26%]">Algo</th>
-                    <th className="text-center py-1.5 font-medium w-[16%]">Nodes</th>
-                    <th className="text-center py-1.5 font-medium w-[14%]">Cost</th>
-                    <th className="text-center py-1.5 font-medium w-[14%]">Time</th>
-                    <th className="text-center py-1.5 font-medium w-[14%]">Opt</th>
-                    <th className="text-center py-1.5 font-medium w-[16%]">Risk</th>
+                  <tr className="bg-[#1e293b]/50 text-[#94a3b8] text-[9px] uppercase tracking-wider font-bold">
+                    <th className="px-3 py-2 border-b border-[#334155]/50">Algo</th>
+                    <th className="px-2 py-2 border-b border-[#334155]/50 text-center">Nodes</th>
+                    <th className="px-2 py-2 border-b border-[#334155]/50 text-center">Cost</th>
+                    <th className="px-2 py-2 border-b border-[#334155]/50 text-center">Time</th>
+                    <th className="px-2 py-2 border-b border-[#334155]/50 text-center">Opt</th>
+                    <th className="px-3 py-2 border-b border-[#334155]/50 text-right">Risk</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-[#334155]/30">
                   {comparisonRows.map((row) => (
-                    <tr key={row.algo} className={`border-t border-[#1e293b] ${row.recommended ? 'border-l-2 border-l-green-500 bg-green-500/5' : ''}`}>
-                      <td className="py-1.5 font-semibold text-[#f1f5f9]">
-                        <div className="truncate">{algoDisplayName(row.algo)}</div>
-                        {row.recommended && <span className="mt-0.5 inline-block text-[7px] bg-green-500/20 text-green-400 px-1 py-0.5 rounded-full">⭐ PICK</span>}
+                    <tr 
+                      key={row.algo} 
+                      className={`group transition-colors hover:bg-[#1e293b]/40 ${row.recommended ? 'bg-green-500/5' : ''}`}
+                    >
+                      <td className="px-3 py-2.5">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-bold text-[#f1f5f9] tracking-tight">{algoDisplayName(row.algo)}</span>
+                          {row.recommended && (
+                            <span className="mt-0.5 text-[8px] font-extrabold text-green-400 uppercase tracking-tighter">
+                              Recommended
+                            </span>
+                          )}
+                        </div>
                       </td>
-                      <td className="py-1.5 text-center text-[#cbd5e1]">{row.nodesExpanded > 0 ? row.nodesExpanded : '-'}</td>
-                      <td className="py-1.5 text-center text-[#cbd5e1]">{row.pathCost > 0 ? row.pathCost : '-'}</td>
-                      <td className="py-1.5 text-center text-[#cbd5e1]">{row.timeMs > 0 ? row.timeMs : '-'}</td>
-                      <td className="py-1.5 text-center">{row.nodesExpanded > 0 ? (row.optimal ? <span className="text-green-400">✅ Yes</span> : <span className="text-red-400">❌ No</span>) : <span className="text-[#64748b]">-</span>}</td>
-                      <td className="py-1.5 text-center">
+                      <td className="px-2 py-2.5 text-center font-mono-display text-[10px] text-[#cbd5e1]">
+                        {row.nodesExpanded > 0 ? row.nodesExpanded.toLocaleString() : '—'}
+                      </td>
+                      <td className="px-2 py-2.5 text-center font-mono-display text-[10px] text-[#cbd5e1]">
+                        {row.pathCost > 0 ? row.pathCost.toFixed(1) : '—'}
+                      </td>
+                      <td className="px-2 py-2.5 text-center font-mono-display text-[10px] text-[#cbd5e1]">
+                        {row.timeMs > 0 ? `${row.timeMs}ms` : '—'}
+                      </td>
+                      <td className="px-2 py-2.5 text-center">
+                        {row.nodesExpanded > 0 ? (
+                          row.optimal ? 
+                            <span className="text-green-400 text-[10px]">✔</span> : 
+                            <span className="text-red-400 text-[10px]">✘</span>
+                        ) : <span className="text-[#475569]">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono-display text-[10px]">
                         {row.nodesExpanded > 0 ? (
                           <span
-                            className={
+                            className={`font-bold ${
                               row.riskScore < 5
                                 ? 'text-green-400'
                                 : row.riskScore < 15
                                   ? 'text-amber-400'
                                   : 'text-red-400'
-                            }
+                            }`}
                           >
-                            {row.riskScore.toFixed(2)} {row.recommended && '⭐'}
+                            {row.riskScore.toFixed(1)}
                           </span>
                         ) : (
-                          <span className="text-[#64748b]">-</span>
+                          <span className="text-[#475569]">—</span>
                         )}
                       </td>
                     </tr>
@@ -582,101 +581,137 @@ export default function SearchTrace({
             </div>
           </div>
 
-          {(() => {
-            /**
-             * Local-search polish card. Hill Climbing greedily improves the global
-             * search's path with adjacent-swap moves; Simulated Annealing accepts
-             * occasional uphill moves to escape local minima. Either way, this card
-             * shows: which algorithm ran, the cost before / after the polish, the
-             * iteration count, and the % improvement. If the polish couldn't help
-             * (path empty, single cell, or already optimal) we still show the inputs
-             * so the user can see the algorithm did run.
-             */
-            const lsLabel = localSearchAlgorithm === 'HillClimbing' ? 'Hill Climbing' : 'Simulated Annealing';
-            const hasResult = !!localSearchResult && localSearchResult.iterations > 0;
-            const initial = localSearchResult?.initialCost ?? 0;
-            const final = localSearchResult?.finalCost ?? 0;
-            const iters = localSearchResult?.iterations ?? 0;
-            const improvement = localSearchResult?.improvement ?? 0;
-            const improvedColor =
-              improvement > 5
-                ? 'text-green-400'
-                : improvement > 0
-                ? 'text-amber-300'
-                : 'text-[#94a3b8]';
-            return (
-              <div className="card-glass p-3 mt-0.5 glow-purple">
-                <div className="text-[10px] font-semibold tracking-[0.15em] text-purple-400 uppercase mb-2 flex items-center justify-between">
-                  <span>Local Search Polish</span>
-                  <span className="text-[8px] font-medium text-[#94a3b8] tracking-wider">
-                    {lsLabel}
-                  </span>
-                </div>
-                {hasResult ? (
-                  <div className="grid grid-cols-2 gap-2 text-[9px]">
-                    <div className="bg-[#020817] rounded-md px-2 py-1.5 border border-[#1e293b]">
-                      <div className="text-[8px] uppercase tracking-wide text-[#64748b]">Initial cost</div>
-                      <div className="text-[#cbd5e1] font-mono-display">{initial.toFixed(2)}</div>
-                    </div>
-                    <div className="bg-[#020817] rounded-md px-2 py-1.5 border border-[#1e293b]">
-                      <div className="text-[8px] uppercase tracking-wide text-[#64748b]">Final cost</div>
-                      <div className="text-[#f1f5f9] font-mono-display font-semibold">{final.toFixed(2)}</div>
-                    </div>
-                    <div className="bg-[#020817] rounded-md px-2 py-1.5 border border-[#1e293b]">
-                      <div className="text-[8px] uppercase tracking-wide text-[#64748b]">Iterations</div>
-                      <div className="text-[#cbd5e1] font-mono-display">{iters}</div>
-                    </div>
-                    <div className="bg-[#020817] rounded-md px-2 py-1.5 border border-[#1e293b]">
-                      <div className="text-[8px] uppercase tracking-wide text-[#64748b]">Improvement</div>
-                      <div className={`font-mono-display font-semibold ${improvedColor}`}>
-                        {improvement > 0 ? `−${improvement.toFixed(1)}%` : '0.0%'}
-                      </div>
-                    </div>
-                    <div className="col-span-2 text-[8px] text-[#64748b] italic mt-1 leading-snug">
-                      {localSearchAlgorithm === 'HillClimbing'
-                        ? 'Greedy adjacent-swap polish — accepts only strictly better neighbours; halts at the first local minimum.'
-                        : 'Cooling-schedule annealing — accepts uphill moves with prob. e^(−Δ/T) to escape local minima before T → 0.'}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-[9px] text-[#94a3b8] leading-snug">
-                    Run the simulation (or hit ▶ in Live Sim) to seed an initial path —{' '}
-                    <span className="text-[#f1f5f9]">{lsLabel}</span> will then polish it
-                    and surface the cost delta here.
-                  </div>
-                )}
+          <SectionLabel>Heuristic Analysis</SectionLabel>
+          <div className="card-glass p-4 shadow-lg border-purple-500/20 bg-purple-500/5">
+            <div className="grid grid-cols-2 gap-3 text-[10px]">
+              <div className="col-span-2 flex flex-col gap-1 bg-[#020817] p-2 rounded-md border border-[#1e293b]">
+                <span className="text-[8px] font-bold text-[#64748b] uppercase tracking-wider">Target Function h(n)</span>
+                <span className="text-[#f1f5f9] font-mono-display text-[9px]">Manhattan(goal) + (Risk × 5)</span>
               </div>
-            );
-          })()}
+              <div className="flex flex-col gap-1 bg-[#020817] p-2 rounded-md border border-[#1e293b]">
+                <span className="text-[8px] font-bold text-[#64748b] uppercase tracking-wider">Admissible</span>
+                <span className="text-green-400 font-bold">✔ YES</span>
+              </div>
+              <div className="flex flex-col gap-1 bg-[#020817] p-2 rounded-md border border-[#1e293b]">
+                <span className="text-[8px] font-bold text-[#64748b] uppercase tracking-wider">Consistent</span>
+                <span className="text-green-400 font-bold">✔ YES</span>
+              </div>
+              <div className="col-span-2 flex items-center justify-between px-2 py-1.5 bg-purple-500/10 rounded-md border border-purple-500/20">
+                <span className="text-[8px] font-bold text-purple-300 uppercase tracking-wider">Standard Weight (ε)</span>
+                <span className="text-purple-300 font-mono-display font-bold">1.0</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-          <div className="card-glass p-3 glow-blue overflow-y-auto min-h-[220px] mt-0.5">
-            <div className="text-[10px] font-semibold tracking-[0.15em] text-[#3b82f6] uppercase mb-2">Trade-off Analysis</div>
-            <div className="space-y-2">
-              {tradeRows.map((s) => {
-                const borderClass = s.border === 'red' ? 'border-glow-left-red' : s.border === 'green' ? 'border-glow-left-green' : 'border-glow-left-blue';
-                const IconComp = s.border === 'red' ? Zap : s.border === 'green' ? Shield : Scale;
-                return (
-                  <div key={s.title} className={`bg-[#020817] rounded-lg p-2.5 ${borderClass} ${s.recommended ? 'glow-blue' : ''}`}>
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <IconComp className={`w-3.5 h-3.5 ${s.border === 'red' ? 'text-red-400' : s.border === 'green' ? 'text-green-400' : 'text-blue-400'}`} />
-                      <span className="text-[10px] font-semibold text-[#f1f5f9]">{s.title}</span>
+        {/* Right Column: Optimization + Trade-offs + LOG DRAWER */}
+        <div className="flex flex-col min-h-0 overflow-hidden border-l border-[#1e293b] bg-[#0f172a]">
+          {/* Top part: Scrollable content */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+            <SectionLabel>Optimization & Trade-offs</SectionLabel>
+            
+            {(() => {
+              const lsLabel = localSearchAlgorithm === 'HillClimbing' ? 'Hill Climbing' : 'Simulated Annealing';
+              const hasResult = !!localSearchResult && localSearchResult.iterations > 0;
+              const initial = localSearchResult?.initialCost ?? 0;
+              const final = localSearchResult?.finalCost ?? 0;
+              const iters = localSearchResult?.iterations ?? 0;
+              const improvement = localSearchResult?.improvement ?? 0;
+              const improvedColor = improvement > 5 ? 'text-green-400' : improvement > 0 ? 'text-amber-300' : 'text-[#94a3b8]';
+              return (
+                <div className="card-glass p-3 shadow-lg border-purple-500/20 bg-purple-500/5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-[10px] font-bold tracking-widest text-purple-400 uppercase">
+                      Local Search Polish
                     </div>
-                    <div className="text-[9px] text-[#94a3b8] space-y-0.5">
-                      <div>
-                        Path Cost: {s.pathCost} | Risk Score:{' '}
-                        <span className={s.riskScore.includes('LOW') ? 'text-green-400' : s.riskScore.includes('HIGH') ? 'text-red-400' : 'text-amber-400'}>
-                          {s.riskScore}
-                        </span>
-                      </div>
-                      <div>
-                        Time: {s.timeMs}ms | {s.border === 'red' ? 'Victims at risk: +2' : s.border === 'green' ? 'All victims safe' : 'Recommended approach'}
-                      </div>
-                      <div className="text-[#64748b] italic">&ldquo;{s.detail}&rdquo;</div>
+                    <div className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[8px] font-bold uppercase tracking-tighter">
+                      {lsLabel}
                     </div>
                   </div>
-                );
-              })}
+                  {hasResult ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[8px] uppercase tracking-wider text-[#64748b] font-bold">Initial Cost</span>
+                        <span className="text-xs font-mono-display text-[#cbd5e1]">{initial.toFixed(1)} units</span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[8px] uppercase tracking-wider text-[#64748b] font-bold">Optimized</span>
+                        <span className="text-xs font-mono-display text-white font-bold">{final.toFixed(1)} <span className="text-green-500">−{improvement.toFixed(1)}%</span></span>
+                      </div>
+                      <div className="col-span-2">
+                        <div className="flex items-center justify-between text-[8px] text-[#64748b] font-bold uppercase mb-1">
+                          <span>Efficiency Gain</span>
+                          <span className={improvedColor}>+{improvement.toFixed(1)}%</span>
+                        </div>
+                        <div className="h-1 bg-[#1e293b] rounded-full overflow-hidden">
+                          <div className="h-full bg-purple-500" style={{ width: `${Math.min(100, improvement * 5)}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-2 text-[10px] text-[#94a3b8] italic">Awaiting global path...</div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="card-glass p-3 shadow-lg border-[#3b82f6]/20 bg-[#3b82f6]/5">
+              <div className="text-[10px] font-bold tracking-widest text-[#3b82f6] uppercase mb-3">Trade-off Analysis</div>
+              <div className="space-y-3">
+                {tradeRows.map((s) => {
+                  const IconComp = s.border === 'red' ? Zap : s.border === 'green' ? Shield : Scale;
+                  return (
+                    <div key={s.title} className={`rounded-xl border p-2.5 ${s.border === 'red' ? 'border-red-500/30 bg-red-500/5' : s.border === 'green' ? 'border-green-500/30 bg-green-500/5' : 'border-blue-500/30 bg-blue-500/5'}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <IconComp className={`w-3.5 h-3.5 ${s.border === 'red' ? 'text-red-400' : s.border === 'green' ? 'text-green-400' : 'text-blue-400'}`} />
+                        <span className="text-[9px] font-bold text-[#f1f5f9] uppercase tracking-tight">{s.title}</span>
+                      </div>
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-[#64748b]">Risk: <span className="text-[#cbd5e1]">{s.riskScore}</span></span>
+                        <span className="text-[#64748b]">Cost: <span className="text-[#cbd5e1]">{s.pathCost}</span></span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+          </div>
+
+          {/* Bottom Drawer: Node Expansion Log (Restricted to Column 3) */}
+          <div className={`shrink-0 flex flex-col bg-[#0a0f1e] border-t border-[#1e293b] transition-all duration-300 ease-in-out ${isLogExpanded ? 'h-[40%]' : 'h-[42px]'}`}>
+            <button 
+              onClick={() => setIsLogExpanded(!isLogExpanded)}
+              className="flex items-center justify-between px-4 h-[42px] hover:bg-[#1e293b]/30 transition-colors cursor-pointer group"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#3b82f6]">Node Expansion Log</span>
+                <span className="text-[9px] text-[#64748b] bg-[#1e293b] px-1.5 rounded-full">{steps.length}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                 <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button title="Reset Trace" onClick={(e) => { e.stopPropagation(); setCurrentStep(0); setIsPlaying(false); }} className="p-1 hover:bg-[#3b82f6]/20 rounded text-[#64748b] hover:text-[#3b82f6] transition-colors"><SkipBack className="w-3.5 h-3.5" /></button>
+                 </div>
+                 {isLogExpanded ? <ChevronDown className="w-4 h-4 text-[#64748b]" /> : <ChevronUp className="w-4 h-4 text-[#64748b]" />}
+              </div>
+            </button>
+            
+            {isLogExpanded && (
+              <div 
+                ref={logScrollRef}
+                className="flex-1 overflow-y-auto p-4 font-mono-display text-[10px] space-y-1.5 bg-[#020817] custom-scrollbar"
+              >
+                {steps.slice(0, currentStep + 1).map((s, idx) => (
+                  <div
+                    key={`${s.stepNumber}-${idx}`}
+                    className={`${logColorMap[s.logType]} flex gap-3 border-b border-[#1e293b]/30 pb-1.5 ${idx === currentStep ? 'bg-[#3b82f6]/10 px-2 rounded' : ''}`}
+                  >
+                    <span className="text-[#64748b] shrink-0 font-bold">[Step {String(s.stepNumber).padStart(2, '0')}]</span>
+                    <span className="leading-relaxed">{s.logText}</span>
+                  </div>
+                ))}
+                {steps.length === 0 && <div className="text-[#64748b] italic text-center py-8">Awaiting search initiation...</div>}
+              </div>
+            )}
           </div>
         </div>
       </div>

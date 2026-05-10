@@ -149,6 +149,7 @@ export interface MlModelEvalReport {
 /** Trained parameters + test metrics from one end-to-end ML evaluation run. */
 export interface MlEvalSnapshot {
   datasetVersion: string;
+  evaluatedAtMs: number;
   totalSamples: number;
   trainSize: number;
   testSize: number;
@@ -213,8 +214,6 @@ export type SimSpeed = 'Slow' | 'Normal' | 'Fast';
 
 export type TabId =
   | 'live-sim'
-  | 'search-trace'
-  | 'csp-solver'
   | 'ml-studio'
   | 'analytics';
 
@@ -266,6 +265,8 @@ export interface SimulationState {
   victimMlEstimates: Record<string, VictimMlEstimate>;
   /** Last fuzzy routing inference (null when fuzzy off or before first replan). */
   fuzzySnapshot: FuzzyRoutingSnapshot | null;
+  /** Shared coordinate target for UI interaction (click-to-target). */
+  selectedCell: { row: number; col: number } | null;
 }
 
 // CSP Variable
@@ -435,6 +436,9 @@ export interface LocalSearchResult {
 /** Actions returned by `useSimulation` (see `src/engine/simulationEngine.ts`). */
 export interface SimulationActions {
   resetSimulation: () => void;
+  startSimulation: () => void;
+  pauseSimulation: () => void;
+  setSimSpeed: (speed: SimSpeed) => void;
   setSearchAlgorithm: (algo: SearchAlgorithm) => void;
   setLocalSearch: (ls: LocalSearch) => void;
   setMLModel: (model: MLModel) => void;
@@ -462,4 +466,5 @@ export interface SimulationActions {
   runMlEvaluation: () => void;
   stepForward: () => void;
   stepBackward: () => void;
+  setSelectedCell: (row: number, col: number) => void;
 }

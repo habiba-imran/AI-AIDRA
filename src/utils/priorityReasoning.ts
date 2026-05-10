@@ -75,57 +75,44 @@ function cspFirstLegHint(state: SimulationState): string | null {
 /**
  * Live copy for the Right Panel “Priority Reasoning” card (no routing/CSP logic changes).
  */
+export interface PrioritizedVictim {
+  id: string;
+  severity: Victim['severity'];
+  reason: string;
+  score: number;
+  survival: number;
+}
+
 export function buildPriorityReasoning(state: SimulationState): {
   hasQueue: boolean;
-  primary: { id: string; severity: Victim['severity']; reason: string } | null;
-  secondary: string | null;
+  fullQueue: PrioritizedVictim[];
   objectiveTitle: string;
   tradeoffLine: string;
   fuzzyNote: string;
+  cspHint: string | null;
 } {
   const queue = sortDispatchQueue(state.victims);
   const obj = objectiveNarrative(state.objectivePriority);
   const fuzzyNote = state.fuzzyLogicEnabled
     ? 'Fuzzy routing is ON — edge risk costs and CSP bumps follow the last fuzzy snapshot after each replan.'
     : 'Fuzzy routing is OFF — crisp edge costs for search and neutral CSP bump from fuzzy.';
-
-  if (queue.length === 0) {
-    return {
-      hasQueue: false,
-      primary: null,
-      secondary: cspFirstLegHint(state),
-      objectiveTitle: obj.title,
-      tradeoffLine: obj.tradeoff,
-      fuzzyNote,
-    };
-  }
-
-  const first = queue[0];
-  const second = queue[1];
-  const primary = {
-    id: first.id,
-    severity: first.severity,
-    reason: primaryReason(first, state.victimMlEstimates),
-  };
-
-  let secondary: string | null = null;
   const cspHint = cspFirstLegHint(state);
-  if (second) {
-    secondary = `Next in queue: ${second.id} — ${formatSeverityUpper(second.severity)} (score ${second.priorityScore.toFixed(
-      1
-    )}, survival ${second.survivalPct}%).`;
-    if (cspHint) secondary = `${secondary} ${cspHint}`;
-  } else if (cspHint) {
-    secondary = cspHint;
-  }
+
+  const fullQueue: PrioritizedVictim[] = queue.map((v) => ({
+    id: v.id,
+    severity: v.severity,
+    reason: primaryReason(v, state.victimMlEstimates),
+    score: v.priorityScore,
+    survival: v.survivalPct,
+  }));
 
   return {
-    hasQueue: true,
-    primary,
-    secondary,
+    hasQueue: fullQueue.length > 0,
+    fullQueue,
     objectiveTitle: obj.title,
     tradeoffLine: obj.tradeoff,
     fuzzyNote,
+    cspHint,
   };
 }
 

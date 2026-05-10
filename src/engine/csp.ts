@@ -103,8 +103,10 @@ function getResourceOrder(): Array<'Amb1' | 'Amb2' | 'Queue'> {
   return ['Amb1', 'Amb2', 'Queue'];
 }
 
+let globalNodeCounter = 0;
+
 function makeNode(
-  id: string,
+  idPrefix: string,
   label: string,
   level: number,
   valid: boolean,
@@ -112,8 +114,9 @@ function makeNode(
   solution: boolean,
   start: boolean
 ): CspTreeNode {
+  globalNodeCounter++;
   return {
-    id,
+    id: `${idPrefix}-${globalNodeCounter}`,
     label,
     level,
     valid,

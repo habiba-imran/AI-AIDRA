@@ -1,158 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Database, Cpu, Brain, Network, ArrowRight, Play } from 'lucide-react';
+import { Database, Cpu, Brain, Network, ArrowRight, Play, Download } from 'lucide-react';
 import { features } from '../data/placeholder';
 import type { MLModel, MlEvalSnapshot, MlModelEvalReport, Victim, VictimMlEstimate } from '../types';
+import { generateSyntheticDataset } from '../engine/mlRiskPipeline';
 
 const FEATURE_DIM = 8;
 const K_BUTTONS = [1, 2, 3, 5, 7, 10] as const;
 
 function SectionLabel({ children, color = 'text-[#3b82f6]' }: { children: React.ReactNode; color?: string }) {
-  return <div className={`text-[10px] font-semibold tracking-[0.15em] uppercase mb-2 mt-1 ${color}`}>{children}</div>;
+  return <div className={`text-sm font-bold tracking-widest uppercase mb-4 mt-2 ${color}`}>{children}</div>;
 }
 
 function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
   return (
-    <div className="w-full h-2 bg-[#1e293b] rounded-full overflow-hidden">
+    <div className="w-full h-3 bg-[#1e293b] rounded-full overflow-hidden">
       <div className="h-full rounded-full" style={{ width: `${(value / max) * 100}%`, backgroundColor: color }} />
-    </div>
-  );
-}
-
-function SimpleLineChart({
-  data,
-  width,
-  height,
-  xLabels,
-  highlightIdx,
-  yLabel,
-  color,
-}: {
-  data: number[];
-  width: number;
-  height: number;
-  xLabels?: string[];
-  highlightIdx?: number;
-  yLabel?: string;
-  color: string;
-}) {
-  if (data.length === 0) return null;
-  const min = Math.min(...data) * 0.9;
-  const max = Math.max(...data) * 1.05;
-  const range = max - min || 1;
-  const padX = 30;
-  const padY = 20;
-  const chartW = width - padX * 2;
-  const chartH = height - padY * 2;
-
-  const denom = Math.max(1, data.length - 1);
-  const points = data.map((v, i) => {
-    const x = padX + (i / denom) * chartW;
-    const y = padY + chartH - ((v - min) / range) * chartH;
-    return { x, y, v };
-  });
-
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-
-  return (
-    <svg width={width} height={height} className="block">
-      {yLabel && (
-        <text x={4} y={padY + 4} fill="#64748b" fontSize={8} fontFamily="JetBrains Mono, monospace">
-          {yLabel}
-        </text>
-      )}
-      {[0, 0.25, 0.5, 0.75, 1].map((f) => {
-        const y = padY + chartH * (1 - f);
-        const val = min + range * f;
-        return (
-          <g key={f}>
-            <line x1={padX} y1={y} x2={width - padX} y2={y} stroke="#1e293b" strokeWidth={0.5} />
-            <text
-              x={padX - 4}
-              y={y + 3}
-              textAnchor="end"
-              fill="#64748b"
-              fontSize={7}
-              fontFamily="JetBrains Mono, monospace"
-            >
-              {Math.round(val * 1000) / 1000}
-            </text>
-          </g>
-        );
-      })}
-      <path d={pathD} fill="none" stroke={color} strokeWidth={1.5} />
-      {points.map((p, i) => (
-        <circle
-          key={i}
-          cx={p.x}
-          cy={p.y}
-          r={i === highlightIdx ? 3.5 : 1.5}
-          fill={i === highlightIdx ? color : '#0f172a'}
-          stroke={color}
-          strokeWidth={1}
-        />
-      ))}
-      {highlightIdx != null && points[highlightIdx] && (
-        <text
-          x={points[highlightIdx].x}
-          y={points[highlightIdx].y - 8}
-          textAnchor="middle"
-          fill={color}
-          fontSize={8}
-          fontFamily="JetBrains Mono, monospace"
-          fontWeight="bold"
-        >
-          {Math.round(data[highlightIdx] * 1000) / 1000}
-        </text>
-      )}
-      {xLabels &&
-        xLabels.map((lbl, i) => {
-          if (data.length > 10 && i % 2 !== 0 && i !== highlightIdx) return null;
-          const x = padX + (i / denom) * chartW;
-          return (
-            <text key={i} x={x} y={height - 4} textAnchor="middle" fill="#64748b" fontSize={7} fontFamily="JetBrains Mono, monospace">
-              {lbl}
-            </text>
-          );
-        })}
-    </svg>
-  );
-}
-
-function ConfusionMatrix({ matrix, labels }: { matrix: number[][]; labels: string[] }) {
-  const maxVal = Math.max(1, ...matrix.flat());
-  return (
-    <div className="mt-2">
-      <div className="grid grid-cols-4 gap-0.5 text-[8px]">
-        <div />
-        {labels.map((l) => (
-          <div key={l} className="text-center text-[#64748b] font-mono-display py-0.5">
-            {l}
-          </div>
-        ))}
-        {matrix.map((row, i) => (
-          <div key={i} className="contents">
-            <div className="text-right text-[#64748b] font-mono-display pr-1 py-0.5">{labels[i]}</div>
-            {row.map((val, j) => {
-              const isDiag = i === j;
-              const intensity = val / maxVal;
-              return (
-                <div
-                  key={j}
-                  className="text-center font-mono-display font-bold py-1 rounded-sm"
-                  style={{
-                    backgroundColor: isDiag
-                      ? `rgba(34,197,94,${0.15 + intensity * 0.35})`
-                      : `rgba(239,68,68,${0.05 + (val / maxVal) * 0.2})`,
-                    color: isDiag ? '#4ade80' : '#f87171',
-                  }}
-                >
-                  {val}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -228,50 +90,62 @@ function modelEvalCard(report: MlModelEvalReport, borderGlow: string) {
         ? 'Naive Bayes Evaluation Report'
         : 'MLP Evaluation Report';
   return (
-    <div key={report.modelId} className={`card-glass p-4 ${borderGlow}`}>
-      <div className="text-[11px] font-bold text-[#f1f5f9] mb-2">{title}</div>
-      <table className="w-full text-[9px] mb-2">
+    <div key={report.modelId} className={`card-glass p-5 ${borderGlow}`}>
+      <div className="text-base font-bold text-[#f1f5f9] mb-4">{title}</div>
+      <table className="w-full text-sm mb-4">
         <thead>
-          <tr className="text-[#64748b]">
-            <th className="text-left py-0.5 font-medium">Class</th>
-            <th className="text-center py-0.5 font-medium">Prec</th>
-            <th className="text-center py-0.5 font-medium">Rec</th>
-            <th className="text-center py-0.5 font-medium">F1</th>
-            <th className="text-center py-0.5 font-medium">Supp</th>
+          <tr className="text-[#64748b] border-b border-[#1e293b]">
+            <th className="text-left py-2 font-medium">Class</th>
+            <th className="text-center py-2 font-medium">Precision</th>
+            <th className="text-center py-2 font-medium">Recall</th>
+            <th className="text-center py-2 font-medium">F1 Score</th>
+            <th className="text-center py-2 font-medium">Support</th>
           </tr>
         </thead>
         <tbody>
           {report.perClass.map((c) => (
-            <tr key={c.classLabel} className="border-t border-[#1e293b]">
-              <td className="py-0.5 text-[#cbd5e1]">{c.classLabel}</td>
-              <td className="py-0.5 text-center font-mono-display text-[#f1f5f9]">{c.precision.toFixed(2)}</td>
-              <td className="py-0.5 text-center font-mono-display text-[#f1f5f9]">{c.recall.toFixed(2)}</td>
-              <td className="py-0.5 text-center font-mono-display text-[#f1f5f9]">{c.f1.toFixed(2)}</td>
-              <td className="py-0.5 text-center font-mono-display text-[#94a3b8]">{c.support}</td>
+            <tr key={c.classLabel} className="border-b border-[#1e293b]/50">
+              <td className="py-2 text-[#cbd5e1] font-semibold">{c.classLabel}</td>
+              <td className="py-2 text-center font-mono-display text-[#f1f5f9]">{c.precision.toFixed(2)}</td>
+              <td className="py-2 text-center font-mono-display text-[#f1f5f9]">{c.recall.toFixed(2)}</td>
+              <td className="py-2 text-center font-mono-display text-[#f1f5f9]">{c.f1.toFixed(2)}</td>
+              <td className="py-2 text-center font-mono-display text-[#94a3b8]">{c.support}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <div className="text-[10px] space-y-0.5 mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[#94a3b8]">Accuracy:</span>
+      <div className="text-sm space-y-2 bg-[#020817]/50 rounded-lg p-3 border border-[#1e293b]">
+        <div className="flex items-center gap-3">
+          <span className="text-[#94a3b8] w-32">Accuracy:</span>
           <span className="text-[#f1f5f9] font-bold">{(report.accuracy * 100).toFixed(1)}%</span>
-          <MiniBar value={report.accuracy * 100} max={100} color="#22c55e" />
+          <div className="flex-1"><MiniBar value={report.accuracy * 100} max={100} color="#22c55e" /></div>
         </div>
-        <div className="text-[#94a3b8]">
-          Macro Avg F1: <span className="text-[#f1f5f9] font-mono-display">{report.macroF1.toFixed(3)}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[#94a3b8] w-32">Macro Avg F1:</span>
+          <span className="text-[#f1f5f9] font-mono-display font-bold">{report.macroF1.toFixed(3)}</span>
         </div>
-        <div className="text-[#94a3b8]">
-          Weighted Avg F1: <span className="text-[#f1f5f9] font-mono-display">{report.weightedF1.toFixed(3)}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[#94a3b8] w-32">Weighted Avg F1:</span>
+          <span className="text-[#f1f5f9] font-mono-display font-bold">{report.weightedF1.toFixed(3)}</span>
         </div>
-        <div className="text-[#94a3b8]">
-          Test inference: <span className="text-[#f1f5f9] font-mono-display">{report.trainTimeMs.toFixed(2)}ms</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[#94a3b8] w-32">Test inference:</span>
+          <span className="text-[#f1f5f9] font-mono-display font-bold">{report.trainTimeMs.toFixed(2)}ms</span>
         </div>
       </div>
-      <div className="text-[9px] text-[#64748b] mb-1">Confusion Matrix (true → pred)</div>
-      <ConfusionMatrix matrix={report.confusionMatrix} labels={['LR', 'MR', 'HR']} />
     </div>
   );
+}
+
+function formatRunTime(ms: number | undefined): string {
+  if (!ms) return '—';
+  const date = new Date(ms);
+  const time = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(date);
+  return `${time}.${String(date.getMilliseconds()).padStart(3, '0')}`;
 }
 
 interface MlStudioProps {
@@ -297,7 +171,6 @@ export default function MlStudio({
     if (mlEvalSnapshot) setActiveK(mlEvalSnapshot.knnK);
   }, [mlEvalSnapshot]);
 
-  const knnHighlightIdx = useMemo(() => K_BUTTONS.indexOf(activeK as (typeof K_BUTTONS)[number]), [activeK]);
   const knnAccForActiveK = useMemo(() => {
     if (!mlEvalSnapshot) return null;
     const idx = K_BUTTONS.indexOf(activeK as (typeof K_BUTTONS)[number]);
@@ -306,6 +179,22 @@ export default function MlStudio({
   }, [mlEvalSnapshot, activeK]);
 
   const masterRows = useMemo(() => buildMasterRows(mlEvalSnapshot), [mlEvalSnapshot]);
+
+  const handleDownloadCSV = () => {
+    const { x, y } = generateSyntheticDataset(9001);
+    let csvContent = "row,col,distBase,risk,fireHint,collapseHint,sev,surv,Label\n";
+    for (let i = 0; i < x.length; i++) {
+       csvContent += x[i].map((v) => v.toFixed(4)).join(",") + "," + y[i] + "\n";
+    }
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'synthetic_disaster_risk.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const trainPct = mlEvalSnapshot
     ? Math.round((mlEvalSnapshot.trainSize / mlEvalSnapshot.totalSamples) * 100)
@@ -358,116 +247,132 @@ export default function MlStudio({
   }, [victimMlEstimates, victims, mlModel]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-      <div className="shrink-0 bg-[#0f172a] border-b border-[#1e293b] px-4 py-3 flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-            <Database className="w-4 h-4 text-[#3b82f6]" />
-            <span className="text-[12px] font-bold text-[#f1f5f9]">
-              DATASET: Synthetic Disaster Risk ({mlEvalSnapshot?.datasetVersion ?? 'not run'})
+    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-[#020817]">
+      {/* Row 1: Dataset & Controls */}
+      <div className="shrink-0 bg-[#0f172a] border-b border-[#1e293b] px-6 py-3 flex items-center justify-between gap-6 shadow-md z-10">
+        <div className="flex items-center gap-6">
+          <div>
+            <div className="flex items-center gap-2 mb-0.5">
+              <Database className="w-4 h-4 text-[#3b82f6]" />
+              <span className="text-sm font-bold text-[#f1f5f9] whitespace-nowrap">
+                DATASET: Synthetic Disaster Risk
+              </span>
+            </div>
+            <span className="text-xs text-[#94a3b8] whitespace-nowrap">
+              {mlEvalSnapshot
+                ? `${mlEvalSnapshot.totalSamples} samples | ${FEATURE_DIM} features | 3 classes`
+                : `${500} samples (default) | ${8} features | 3 classes`}
             </span>
           </div>
-          <span className="text-[10px] text-[#94a3b8]">
-            {mlEvalSnapshot
-              ? `${mlEvalSnapshot.totalSamples} samples | ${FEATURE_DIM} features | 3 classes`
-              : `${500} samples (default) | ${8} features | 3 classes — run evaluation to materialize`}
-          </span>
-          <div className="mt-2 flex items-center gap-2 flex-wrap">
-            <span className="text-[9px] text-[#64748b]">Active agent model (Left panel + CSP tie-in):</span>
+        </div>
+
+        <div className="flex items-center gap-3 bg-[#1e293b]/50 p-1 rounded-xl border border-[#334155]/50">
+          <span className="text-xs text-[#cbd5e1] font-semibold px-2 border-r border-[#334155] mr-1">Active Model</span>
+          <div className="flex gap-1">
             {(['kNN', 'NaiveBayes', 'MLP'] as const).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => onSelectMlModel(m)}
-                className={`text-[9px] px-2 py-0.5 rounded-full border cursor-pointer ${
+                className={`text-xs px-3 py-1 rounded-lg border font-bold transition-all cursor-pointer ${
                   mlModel === m
-                    ? 'bg-[#3b82f6]/30 border-[#3b82f6] text-[#f1f5f9]'
-                    : 'border-[#334155] text-[#94a3b8] hover:bg-[#1e293b]'
+                    ? 'bg-[#3b82f6] border-[#3b82f6] text-[#f1f5f9] shadow-lg'
+                    : 'border-transparent text-[#94a3b8] hover:bg-[#334155]'
                 }`}
               >
                 {m === 'NaiveBayes' ? 'NB' : m}
               </button>
             ))}
-            <button
-              type="button"
-              onClick={() => onRunMlEvaluation()}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#22c55e] text-[#020817] text-[10px] font-semibold hover:bg-[#16a34a] transition-colors cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5" /> Run Training &amp; Evaluation
-            </button>
           </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {[
-            { icon: '🔢', label: 'Total', value: mlEvalSnapshot ? String(mlEvalSnapshot.totalSamples) : '500' },
-            {
-              icon: '🎓',
-              label: 'Train',
-              value: mlEvalSnapshot ? `${mlEvalSnapshot.trainSize} (${trainPct}%)` : '—',
-            },
-            {
-              icon: '🧪',
-              label: 'Test',
-              value: mlEvalSnapshot ? `${mlEvalSnapshot.testSize} (${testPct}%)` : '—',
-            },
-            { icon: '🏷', label: 'Classes', value: '3' },
-          ].map((s) => (
-            <div key={s.label} className="flex items-center gap-1 bg-[#020817] border border-[#1e293b] rounded-lg px-2.5 py-1">
-              <span className="text-[9px]">{s.icon}</span>
-              <span className="text-[9px] text-[#64748b]">{s.label}:</span>
-              <span className="text-[10px] text-[#f1f5f9] font-semibold">{s.value}</span>
-            </div>
-          ))}
-        </div>
-        <div className="w-[220px] min-w-[200px]">
-          <div className="text-[10px] text-[#94a3b8] mb-1.5">Train class distribution</div>
-          {distTrain ? (
-            [
-              { label: 'Low Risk', count: distTrain[0], color: '#22c55e' },
-              { label: 'Medium Risk', count: distTrain[1], color: '#f59e0b' },
-              { label: 'High Risk', count: distTrain[2], color: '#ef4444' },
-            ].map((c) => (
-              <div key={c.label} className="flex items-center gap-1.5 mb-0.5">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                <span className="text-[9px] text-[#94a3b8] w-[70px]">{c.label}</span>
-                <div className="flex-1 h-1.5 bg-[#1e293b] rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${barPct(c.count)}%`, backgroundColor: c.color }} />
-                </div>
-                <span className="text-[9px] text-[#64748b] w-[28px] text-right">{c.count}</span>
-              </div>
-            ))
-          ) : (
-            <div className="text-[9px] text-[#64748b]">Run evaluation to populate.</div>
-          )}
+          <div className="w-px h-6 bg-[#334155] mx-1"></div>
+          <button
+            type="button"
+            onClick={() => onRunMlEvaluation()}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#22c55e] text-[#020817] text-xs font-bold hover:bg-[#16a34a] transition-colors cursor-pointer"
+          >
+            <Play className="w-3.5 h-3.5" /> Re-run Evaluation
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadCSV}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#3b82f6] text-[#020817] text-xs font-bold hover:bg-[#2563eb] transition-colors cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </button>
         </div>
       </div>
 
-      <div className="shrink-0 px-4 py-3">
-        <div className="card-glass p-4 border-glow-left-purple">
+      {/* Row 2: Stats & Distribution */}
+      <div className="shrink-0 bg-[#020817] border-b border-[#1e293b] px-6 py-2 flex items-center justify-between gap-6 shadow-sm z-10">
+        <div className="flex items-center gap-8">
+          {[
+            { icon: '🔢', label: 'Total Samples', value: mlEvalSnapshot ? String(mlEvalSnapshot.totalSamples) : '500' },
+            { icon: '🎓', label: 'Training Set', value: mlEvalSnapshot ? `${mlEvalSnapshot.trainSize}` : '399' },
+            { icon: '🧪', label: 'Testing Set', value: mlEvalSnapshot ? `${mlEvalSnapshot.testSize}` : '101' },
+          ].map((s) => (
+            <div key={s.label} className="flex items-center gap-3">
+              <span className="text-lg">{s.icon}</span>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-[#64748b] font-bold uppercase tracking-widest">{s.label}</span>
+                <span className="text-sm text-[#f1f5f9] font-mono-display font-bold">{s.value}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-8 pr-2">
+          <div className="flex flex-col">
+            <span className="text-[10px] text-[#64748b] font-bold uppercase tracking-widest">Training Class Distribution</span>
+            <span className="text-[9px] text-[#475569]">Samples per target class</span>
+          </div>
+          <div className="flex items-center gap-6">
+            {[
+              { label: 'Low Risk', count: distTrain ? distTrain[0] : 174, color: '#22c55e' },
+              { label: 'Med Risk', count: distTrain ? distTrain[1] : 183, color: '#f59e0b' },
+              { label: 'High Risk', count: distTrain ? distTrain[2] : 42, color: '#ef4444' },
+            ].map((c) => (
+              <div key={c.label} className="flex items-center gap-3 w-32">
+                <div className="flex flex-col flex-1 gap-1">
+                  <div className="flex justify-between items-end">
+                    <span className="text-[10px] font-bold text-[#94a3b8]">{c.label}</span>
+                    <span className="text-[10px] font-mono-display text-[#f1f5f9] font-bold">{c.count}</span>
+                  </div>
+                  <div className="h-1.5 bg-[#1e293b] rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${barPct(c.count)}%`, backgroundColor: c.color }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="shrink-0 px-6 py-5">
+        <div className="card-glass p-6 border-glow-left-purple bg-[#0f172a]/50">
           <SectionLabel color="text-purple-400">Feature Set &amp; Importance</SectionLabel>
-          <div className="flex gap-4">
+          <div className="flex gap-8">
             <div className="flex-1 overflow-x-auto">
-              <table className="w-full text-[10px]">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-[#64748b] text-[9px] uppercase tracking-wider">
-                    <th className="text-left py-1.5 font-medium w-6">#</th>
-                    <th className="text-left py-1.5 font-medium">Feature Name</th>
-                    <th className="text-left py-1.5 font-medium">Type</th>
-                    <th className="text-left py-1.5 font-medium">Range</th>
-                    <th className="text-left py-1.5 font-medium">Importance</th>
+                  <tr className="text-[#94a3b8] border-b border-[#1e293b]">
+                    <th className="text-left py-2 px-2 font-medium w-8">#</th>
+                    <th className="text-left py-2 px-2 font-medium">Feature Name</th>
+                    <th className="text-left py-2 px-2 font-medium">Type</th>
+                    <th className="text-left py-2 px-2 font-medium">Range</th>
+                    <th className="text-left py-2 px-2 font-medium">Importance</th>
                   </tr>
                 </thead>
                 <tbody>
                   {features.map((f) => (
-                    <tr key={f.id} className={`border-t border-[#1e293b] ${f.id <= 3 ? 'bg-[#3b82f6]/5' : ''}`}>
-                      <td className="py-1.5 text-[#64748b]">{f.id}</td>
-                      <td className="py-1.5 font-mono-display text-[#f1f5f9]">{f.name}</td>
-                      <td className="py-1.5 text-[#94a3b8]">{f.type}</td>
-                      <td className="py-1.5 text-[#94a3b8] font-mono-display">{f.range}</td>
-                      <td className="py-1.5">
-                        <div className="flex items-center gap-2">
-                          <MiniBar value={f.importance} max={1} color="#3b82f6" />
-                          <span className="text-[9px] text-[#94a3b8] w-8">{f.importance.toFixed(2)}</span>
+                    <tr key={f.id} className={`border-b border-[#1e293b]/50 ${f.id <= 3 ? 'bg-[#3b82f6]/5' : ''}`}>
+                      <td className="py-2 px-2 text-[#64748b] font-mono-display">{f.id}</td>
+                      <td className="py-2 px-2 font-mono-display font-bold text-[#f1f5f9]">{f.name}</td>
+                      <td className="py-2 px-2 text-[#cbd5e1]">{f.type}</td>
+                      <td className="py-2 px-2 text-[#94a3b8] font-mono-display">{f.range}</td>
+                      <td className="py-2 px-2 w-48">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1"><MiniBar value={f.importance} max={1} color="#3b82f6" /></div>
+                          <span className="text-sm text-[#94a3b8] w-10 font-mono-display">{f.importance.toFixed(2)}</span>
                         </div>
                       </td>
                     </tr>
@@ -475,17 +380,17 @@ export default function MlStudio({
                 </tbody>
               </table>
             </div>
-            <div className="w-[280px] shrink-0">
-              <div className="text-[10px] text-[#f1f5f9] font-semibold mb-1">Feature Importance Scores</div>
-              <div className="text-[9px] text-[#64748b] mb-2">Static schema (synthetic dataset uses aligned 8-D vectors)</div>
-              <div className="space-y-1.5">
+            <div className="w-[350px] shrink-0 bg-[#020817] p-4 rounded-xl border border-[#1e293b]">
+              <div className="text-base text-[#f1f5f9] font-bold mb-2">Feature Importance Scores</div>
+              <div className="text-sm text-[#94a3b8] mb-4">Static schema (synthetic dataset uses aligned 8-D vectors)</div>
+              <div className="space-y-3">
                 {features.map((f) => (
-                  <div key={f.id} className="flex items-center gap-2">
-                    <span className="text-[9px] text-[#94a3b8] w-[100px] truncate font-mono-display text-right">{f.name}</span>
+                  <div key={f.id} className="flex items-center gap-3">
+                    <span className="text-sm text-[#cbd5e1] w-28 truncate font-mono-display text-right font-semibold">{f.name}</span>
                     <div className="flex-1 h-3 bg-[#1e293b] rounded-full overflow-hidden">
                       <div className="h-full rounded-full bg-gradient-to-r from-[#3b82f6] to-[#6366f1]" style={{ width: `${f.importance * 100}%` }} />
                     </div>
-                    <span className="text-[9px] text-[#94a3b8] w-8">{f.importance.toFixed(2)}</span>
+                    <span className="text-sm text-[#94a3b8] w-10 font-mono-display">{f.importance.toFixed(2)}</span>
                   </div>
                 ))}
               </div>
@@ -494,24 +399,26 @@ export default function MlStudio({
         </div>
       </div>
 
-      <div className="shrink-0 px-4 pb-3">
-        <SectionLabel>Model Training</SectionLabel>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="card-glass p-4 glow-blue">
-            <div className="flex items-center gap-1.5 mb-2">
-              <Cpu className="w-4 h-4 text-blue-400" />
-              <span className="text-[11px] font-bold text-[#f1f5f9]">k-Nearest Neighbors (kNN)</span>
+      <div className="shrink-0 px-6 pb-5">
+        <SectionLabel>Model Training Configuration</SectionLabel>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          
+          {/* kNN Card */}
+          <div className="card-glass p-6 glow-blue border border-[#1e293b]">
+            <div className="flex items-center gap-3 mb-4">
+              <Cpu className="w-6 h-6 text-blue-400" />
+              <span className="text-lg font-bold text-[#f1f5f9]">k-Nearest Neighbors (kNN)</span>
             </div>
-            <div className="mb-2">
-              <div className="text-[9px] text-[#64748b] mb-1">k value:</div>
-              <div className="flex gap-1 flex-wrap">
+            <div className="mb-4 bg-[#020817]/50 p-3 rounded-lg border border-[#1e293b]">
+              <div className="text-sm text-[#cbd5e1] font-semibold mb-2">Neighborhood size (k):</div>
+              <div className="flex gap-2 flex-wrap mb-2">
                 {K_BUTTONS.map((k) => (
                   <button
                     key={k}
                     type="button"
                     onClick={() => setActiveK(k)}
-                    className={`px-2 py-0.5 rounded text-[9px] font-medium transition-all cursor-pointer ${
-                      activeK === k ? 'bg-[#3b82f6] text-[#f1f5f9] glow-blue' : 'border border-[#334155] text-[#94a3b8] hover:bg-[#1e293b]'
+                    className={`px-3 py-1 rounded-md text-sm font-bold transition-all cursor-pointer ${
+                      activeK === k ? 'bg-[#3b82f6] text-[#f1f5f9] shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'border border-[#334155] text-[#94a3b8] hover:bg-[#1e293b]'
                     }`}
                   >
                     {k}
@@ -519,171 +426,151 @@ export default function MlStudio({
                   </button>
                 ))}
               </div>
-              <div className="text-[9px] text-[#94a3b8] mt-1">Distance: Euclidean | Weighting: Uniform</div>
+              <div className="text-sm text-[#94a3b8]">Distance: <span className="text-white">Euclidean</span> | Weighting: <span className="text-white">Uniform</span></div>
             </div>
-            <div className="text-[10px] space-y-0.5 mb-2">
-              <div className={mlEvalSnapshot ? 'text-green-400' : 'text-[#64748b]'}>
+            <div className="text-sm space-y-2 mb-4">
+              <div className={`font-semibold flex items-center gap-2 ${mlEvalSnapshot ? 'text-green-400' : 'text-[#64748b]'}`}>
                 {mlEvalSnapshot ? '✅ Evaluation snapshot loaded' : '○ Run evaluation to train'}
               </div>
-              <div className="text-[#94a3b8]">
-                Selected k test acc:{' '}
-                <span className="text-[#f1f5f9]">
+              <div className="flex justify-between text-[#94a3b8]">
+                <span>Selected k test acc:</span>
+                <span className="text-[#f1f5f9] font-bold">
                   {knnAccForActiveK != null ? `${(knnAccForActiveK * 100).toFixed(1)}%` : '—'}
                 </span>
               </div>
-              <div className="text-[#94a3b8]">
-                Deployed k (CSP):{' '}
-                <span className="text-[#f1f5f9] font-mono-display">{mlEvalSnapshot?.knnK ?? '—'}</span>
+              <div className="flex justify-between text-[#94a3b8]">
+                <span>Deployed k (CSP):</span>
+                <span className="text-[#f1f5f9] font-mono-display font-bold">{mlEvalSnapshot?.knnK ?? '—'}</span>
               </div>
             </div>
-            <div className="bg-[#020817] rounded-lg p-2 border border-[#1e293b]">
-              <div className="text-[9px] text-[#64748b] mb-1">Accuracy vs K (hold-out test)</div>
-              {mlEvalSnapshot && mlEvalSnapshot.knnAccByK.length > 0 ? (
-                <SimpleLineChart
-                  data={mlEvalSnapshot.knnAccByK}
-                  width={260}
-                  height={120}
-                  xLabels={K_BUTTONS.map(String)}
-                  highlightIdx={knnHighlightIdx >= 0 ? knnHighlightIdx : undefined}
-                  color="#3b82f6"
-                />
-              ) : (
-                <div className="text-[9px] text-[#64748b] h-[120px] flex items-center justify-center">No data</div>
-              )}
-            </div>
-            <div className="mt-1.5 text-[10px] text-green-400 font-medium">
+            <div className="mt-4 pt-4 border-t border-[#1e293b] text-sm text-green-400 font-bold text-center">
               {mlEvalSnapshot
                 ? `Best k=${mlEvalSnapshot.knnK} (test acc ${(mlEvalSnapshot.reports.kNN.accuracy * 100).toFixed(1)}%)`
                 : '—'}
             </div>
           </div>
 
-          <div className="card-glass p-4 glow-purple">
-            <div className="flex items-center gap-1.5 mb-2">
-              <Brain className="w-4 h-4 text-purple-400" />
-              <span className="text-[11px] font-bold text-[#f1f5f9]">Naive Bayes (Gaussian NB)</span>
+          {/* Naive Bayes Card */}
+          <div className="card-glass p-6 glow-purple border border-[#1e293b]">
+            <div className="flex items-center gap-3 mb-4">
+              <Brain className="w-6 h-6 text-purple-400" />
+              <span className="text-lg font-bold text-[#f1f5f9]">Naive Bayes</span>
             </div>
-            <div className="text-[10px] text-[#94a3b8] space-y-0.5 mb-2">
-              <div>
-                Type: <span className="text-[#f1f5f9]">Gaussian NB</span>
+            <div className="bg-[#020817]/50 p-3 rounded-lg border border-[#1e293b] text-sm text-[#94a3b8] space-y-2 mb-4">
+              <div className="flex justify-between">
+                <span>Distribution Type:</span> <span className="text-[#f1f5f9] font-bold">Gaussian NB</span>
               </div>
-              <div>
-                Laplace / var floor: <span className="text-[#f1f5f9] font-mono-display">α≈1e-6</span>
+              <div className="flex justify-between">
+                <span>Laplace / var floor:</span> <span className="text-[#f1f5f9] font-mono-display font-bold">α≈1e-6</span>
               </div>
             </div>
-            <div className="text-[10px] space-y-0.5 mb-2">
-              <div className={mlEvalSnapshot ? 'text-green-400' : 'text-[#64748b]'}>
+            <div className="text-sm space-y-2 mb-4">
+              <div className={`font-semibold flex items-center gap-2 ${mlEvalSnapshot ? 'text-green-400' : 'text-[#64748b]'}`}>
                 {mlEvalSnapshot ? '✅ Fitted on train split' : '○ Not fitted'}
               </div>
-              <div className="text-[#94a3b8]">
-                Test accuracy:{' '}
-                <span className="text-[#f1f5f9]">
+              <div className="flex justify-between text-[#94a3b8]">
+                <span>Test accuracy:</span>
+                <span className="text-[#f1f5f9] font-bold">
                   {mlEvalSnapshot ? `${(mlEvalSnapshot.reports.NaiveBayes.accuracy * 100).toFixed(1)}%` : '—'}
                 </span>
               </div>
             </div>
-            <div className="bg-[#020817] rounded-lg p-2 border border-[#1e293b]">
-              <div className="text-[9px] text-[#64748b] mb-1">Class prior probabilities (train)</div>
-              <div className="space-y-2 mt-3">
+            <div className="bg-[#020817] rounded-xl p-3 border border-[#1e293b]">
+              <div className="text-sm font-bold text-[#cbd5e1] mb-2">Class Prior Probabilities</div>
+              <div className="space-y-2">
                 {mlEvalSnapshot ? (
                   [
                     { label: 'Low Risk', value: mlEvalSnapshot.nbClassPriors[0], color: '#22c55e' },
                     { label: 'Med Risk', value: mlEvalSnapshot.nbClassPriors[1], color: '#f59e0b' },
                     { label: 'High Risk', value: mlEvalSnapshot.nbClassPriors[2], color: '#ef4444' },
                   ].map((c) => (
-                    <div key={c.label} className="flex items-center gap-2">
-                      <span className="text-[9px] text-[#94a3b8] w-[60px]">{c.label}</span>
-                      <div className="flex-1 h-5 bg-[#1e293b] rounded overflow-hidden relative">
-                        <div className="h-full rounded" style={{ width: `${c.value * 100}%`, backgroundColor: c.color }} />
-                        <span className="absolute inset-0 flex items-center justify-center text-[9px] text-[#f1f5f9] font-mono-display">
+                    <div key={c.label} className="flex items-center gap-3">
+                      <span className="text-sm text-[#94a3b8] w-20 font-semibold">{c.label}</span>
+                      <div className="flex-1 h-6 bg-[#1e293b] rounded-lg overflow-hidden relative border border-[#334155]/30">
+                        <div className="h-full rounded-lg" style={{ width: `${c.value * 100}%`, backgroundColor: c.color }} />
+                        <span className="absolute inset-0 flex items-center justify-center text-sm text-[#f1f5f9] font-mono-display font-bold drop-shadow-md">
                           {c.value.toFixed(3)}
                         </span>
                       </div>
                     </div>
                   ))
                 ) : (
-                  <div className="text-[9px] text-[#64748b] py-4 text-center">Run evaluation</div>
+                  <div className="text-sm text-[#64748b] py-4 text-center">Run evaluation</div>
                 )}
               </div>
             </div>
-            <div className="mt-1.5 text-[10px] text-green-400 font-medium">Fast Gaussian likelihood inference</div>
+            <div className="mt-4 pt-4 border-t border-[#1e293b] text-sm text-green-400 font-bold text-center">
+              Provides the fastest inference time
+            </div>
           </div>
 
-          <div className="card-glass p-4 glow-amber">
-            <div className="flex items-center gap-1.5 mb-2">
-              <Network className="w-4 h-4 text-amber-400" />
-              <span className="text-[11px] font-bold text-[#f1f5f9]">MLP (1 hidden layer)</span>
+          {/* MLP Card */}
+          <div className="card-glass p-6 glow-amber border border-[#1e293b]">
+            <div className="flex items-center gap-3 mb-4">
+              <Network className="w-6 h-6 text-amber-400" />
+              <span className="text-lg font-bold text-[#f1f5f9]">Multilayer Perceptron</span>
             </div>
-            <div className="text-[10px] text-[#94a3b8] space-y-0.5 mb-2">
-              <div>
-                Architecture: <span className="text-[#f1f5f9] font-mono-display">8 → 16 → 3</span>
+            <div className="bg-[#020817]/50 p-3 rounded-lg border border-[#1e293b] text-sm text-[#94a3b8] space-y-2 mb-4">
+              <div className="flex justify-between">
+                <span>Architecture:</span> <span className="text-[#f1f5f9] font-mono-display font-bold">8 → 16 → 3</span>
               </div>
-              <div>
-                Activation: <span className="text-[#f1f5f9]">ReLU</span> | SGD LR:{' '}
-                <span className="text-[#f1f5f9] font-mono-display">0.08</span>
+              <div className="flex justify-between">
+                <span>Activation:</span> <span className="text-[#f1f5f9] font-bold">ReLU</span>
               </div>
-              <div>
-                Epochs: <span className="text-[#f1f5f9]">80</span> (batch full-gradient)
+              <div className="flex justify-between">
+                <span>SGD Learning Rate:</span> <span className="text-[#f1f5f9] font-mono-display font-bold">0.035</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Epochs:</span> <span className="text-[#f1f5f9] font-bold">100</span>
               </div>
             </div>
-            <div className="text-[10px] space-y-0.5 mb-2">
-              <div className={mlEvalSnapshot ? 'text-green-400' : 'text-[#64748b]'}>
+            <div className="text-sm space-y-2 mb-4">
+              <div className={`font-semibold flex items-center gap-2 ${mlEvalSnapshot ? 'text-green-400' : 'text-[#64748b]'}`}>
                 {mlEvalSnapshot ? '✅ Weights fitted on train' : '○ Not trained'}
               </div>
-              <div className="text-[#94a3b8]">
-                Test accuracy:{' '}
-                <span className="text-[#f1f5f9]">
+              <div className="flex justify-between text-[#94a3b8]">
+                <span>Test accuracy:</span>
+                <span className="text-[#f1f5f9] font-bold">
                   {mlEvalSnapshot ? `${(mlEvalSnapshot.reports.MLP.accuracy * 100).toFixed(1)}%` : '—'}
                 </span>
               </div>
             </div>
-            <div className="bg-[#020817] rounded-lg p-2 border border-[#1e293b]">
-              <div className="text-[9px] text-[#64748b] mb-1">Training loss (cross-entropy)</div>
-              {mlEvalSnapshot && mlEvalSnapshot.mlpLossCurve.length > 1 ? (
-                <SimpleLineChart
-                  data={mlEvalSnapshot.mlpLossCurve}
-                  width={260}
-                  height={100}
-                  highlightIdx={mlEvalSnapshot.mlpLossCurve.length - 1}
-                  color="#f59e0b"
-                  yLabel="Loss"
-                />
-              ) : (
-                <div className="text-[9px] text-[#64748b] h-[100px] flex items-center justify-center">No curve</div>
-              )}
-            </div>
-            <div className="bg-[#020817] rounded-lg p-2 border border-[#1e293b] mt-2">
-              <div className="text-[9px] text-[#64748b] mb-1">MLP layout</div>
-              <div className="flex items-center justify-center gap-1 py-1">
+            
+            <div className="bg-[#020817] rounded-xl p-4 border border-[#1e293b] flex flex-col items-center justify-center">
+              <div className="text-sm font-bold text-[#cbd5e1] mb-4">Neural Network Layout</div>
+              <div className="flex items-center justify-center gap-4">
                 {[
-                  { nodes: 8, color: '#3b82f6', label: '8' },
-                  { nodes: 5, color: '#f59e0b', label: '16' },
-                  { nodes: 3, color: '#22c55e', label: '3' },
+                  { nodes: 8, color: '#3b82f6', label: '8 Inputs' },
+                  { nodes: 5, color: '#f59e0b', label: '16 Hidden' },
+                  { nodes: 3, color: '#22c55e', label: '3 Outputs' },
                 ].map((layer, li) => (
-                  <div key={li} className="flex items-center gap-1">
-                    <div className="flex flex-col items-center gap-0.5">
+                  <div key={li} className="flex items-center gap-4">
+                    <div className="flex flex-col items-center gap-1.5">
                       {Array.from({ length: layer.nodes }, (_, ni) => (
                         <div
                           key={ni}
-                          className="w-2.5 h-2.5 rounded-full border"
+                          className="w-4 h-4 rounded-full border-2"
                           style={{ borderColor: layer.color, backgroundColor: `${layer.color}30` }}
                         />
                       ))}
-                      <span className="text-[7px] text-[#64748b] font-mono-display">{layer.label}</span>
+                      <span className="text-xs text-[#94a3b8] font-semibold mt-1">{layer.label}</span>
                     </div>
-                    {li < 2 && <span className="text-[#334155] text-[8px]">→</span>}
+                    {li < 2 && <ArrowRight className="w-5 h-5 text-[#334155]" />}
                   </div>
                 ))}
               </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-[#1e293b] text-sm text-green-400 font-bold text-center">
+              Captures complex non-linear risk factors
             </div>
           </div>
         </div>
       </div>
 
-      <div className="shrink-0 px-4 pb-4">
-        <SectionLabel>Model Evaluation &amp; Comparison</SectionLabel>
+      <div className="shrink-0 px-6 pb-6">
+        <SectionLabel>Model Evaluation &amp; Comparison Report</SectionLabel>
 
-        <div className="grid grid-cols-3 gap-3 mb-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           {mlEvalSnapshot ? (
             <>
               {modelEvalCard(mlEvalSnapshot.reports.kNN, 'border-glow-left-blue')}
@@ -691,85 +578,82 @@ export default function MlStudio({
               {modelEvalCard(mlEvalSnapshot.reports.MLP, 'border-glow-left-amber')}
             </>
           ) : (
-            <div className="col-span-3 text-[10px] text-[#64748b] card-glass p-6 text-center border border-[#1e293b]">
-              Run <span className="text-[#f1f5f9]">Training &amp; Evaluation</span> to populate kNN, Naive Bayes, and MLP metrics and
-              confusion matrices.
+            <div className="col-span-3 text-base text-[#94a3b8] card-glass p-12 text-center border border-[#1e293b] border-dashed">
+              Run <span className="text-[#f1f5f9] font-bold bg-[#1e293b] px-2 py-1 rounded">Training &amp; Evaluation</span> to populate comprehensive performance reports for kNN, Naive Bayes, and MLP.
             </div>
           )}
         </div>
 
-        <div className="flex gap-3">
-          <div className="flex-1 card-glass p-4 overflow-x-auto">
+        <div className="flex flex-col xl:flex-row gap-6">
+          <div className="flex-1 card-glass p-6 overflow-x-auto shadow-lg">
             <SectionLabel>Side-by-Side Model Comparison</SectionLabel>
-            <table className="w-full text-[10px]">
+            <table className="w-full text-base">
               <thead>
-                <tr className="text-[#64748b] text-[9px] uppercase tracking-wider">
-                  <th className="text-left py-1.5 font-medium">Metric</th>
-                  <th className="text-center py-1.5 font-medium">kNN</th>
-                  <th className="text-center py-1.5 font-medium">Naive Bayes</th>
-                  <th className="text-center py-1.5 font-medium">MLP</th>
-                  <th className="text-center py-1.5 font-medium">Best</th>
+                <tr className="text-[#94a3b8] uppercase tracking-wider border-b border-[#1e293b]">
+                  <th className="text-left py-3 px-2 font-semibold">Metric</th>
+                  <th className="text-center py-3 px-2 font-semibold">kNN</th>
+                  <th className="text-center py-3 px-2 font-semibold">Naive Bayes</th>
+                  <th className="text-center py-3 px-2 font-semibold">MLP</th>
+                  <th className="text-center py-3 px-2 font-bold text-green-400">Best Performer</th>
                 </tr>
               </thead>
               <tbody>
                 {masterRows.map((row) => (
-                  <tr key={row.metric} className="border-t border-[#1e293b]">
-                    <td className="py-1.5 font-semibold text-[#cbd5e1]">{row.metric}</td>
-                    <td className="py-1.5 text-center text-[#f1f5f9] font-mono-display">{row.knn}</td>
-                    <td className="py-1.5 text-center text-[#f1f5f9] font-mono-display">{row.nb}</td>
-                    <td className="py-1.5 text-center text-[#f1f5f9] font-mono-display">{row.mlp}</td>
-                    <td className="py-1.5 text-center text-green-400 font-semibold">{row.best}</td>
+                  <tr key={row.metric} className="border-b border-[#1e293b]/50 hover:bg-[#1e293b]/30">
+                    <td className="py-3 px-2 font-bold text-[#f1f5f9]">{row.metric}</td>
+                    <td className="py-3 px-2 text-center text-[#cbd5e1] font-mono-display font-semibold">{row.knn}</td>
+                    <td className="py-3 px-2 text-center text-[#cbd5e1] font-mono-display font-semibold">{row.nb}</td>
+                    <td className="py-3 px-2 text-center text-[#cbd5e1] font-mono-display font-semibold">{row.mlp}</td>
+                    <td className="py-3 px-2 text-center text-green-400 font-bold bg-green-500/5">{row.best}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="mt-2 text-[10px] text-[#94a3b8] leading-relaxed bg-[#020817] rounded-lg p-2.5 border border-[#1e293b]">
+            <div className="mt-4 text-sm text-[#cbd5e1] leading-relaxed bg-[#020817] rounded-xl p-4 border border-[#334155] shadow-inner">
               {mlEvalSnapshot ? (
                 <>
-                  kNN (k={mlEvalSnapshot.knnK}) is used for smooth local decision boundaries; NB is fastest; MLP captures
-                  non-linear interactions. The <span className="text-[#f1f5f9]">active model</span> in the left panel drives live CSP
-                  priorityScore when a snapshot exists.
+                  <strong className="text-blue-400">kNN</strong> (k={mlEvalSnapshot.knnK}) is used for smooth local decision boundaries. <strong className="text-purple-400">Naive Bayes</strong> is extremely fast and robust for independent features. <strong className="text-amber-400">MLP</strong> captures non-linear feature interactions for highest theoretical accuracy. The <span className="text-[#f1f5f9] font-bold underline decoration-[#3b82f6]">Active Model</span> selected in the top panel determines which model will be used by the live simulation to predict risk and adjust CSP priorities.
                 </>
               ) : (
-                <>After evaluation, pick kNN, NB, or MLP — the agent uses that model during CSP.</>
+                <>After evaluation completes, select kNN, Naive Bayes, or MLP to be the active inference model used by the live simulation engine to evaluate victim risk profiles on the fly.</>
               )}
             </div>
           </div>
 
-          <div className="w-[380px] shrink-0 card-glass p-4 border-glow-left-purple">
-            <SectionLabel color="text-purple-400">ML → Agent Integration</SectionLabel>
-            <div className="space-y-2">
+          <div className="w-full xl:w-[450px] shrink-0 card-glass p-6 border-glow-left-blue shadow-lg">
+            <SectionLabel color="text-blue-400">Live Agent Integration Pipeline</SectionLabel>
+            <div className="space-y-4">
               {integrationFlows.map((flow, idx) => {
                 const badgeColor =
                   flow.color === 'blue'
-                    ? 'bg-blue-500/20 text-blue-400'
+                    ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                     : flow.color === 'purple'
-                      ? 'bg-purple-500/20 text-purple-400'
-                      : 'bg-amber-500/20 text-amber-400';
-                const targetColor =
-                  flow.target === 'Route Planning'
-                    ? 'bg-green-500/20 text-green-400'
-                    : flow.target === 'Dynamic Replanning'
-                      ? 'bg-amber-500/20 text-amber-400'
-                      : 'bg-red-500/20 text-red-400';
+                      ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                      : 'bg-amber-500/20 text-amber-400 border-amber-500/30';
                 return (
-                  <div key={idx} className="bg-[#020817] rounded-lg p-2.5 border border-[#1e293b] border-glow-left-blue">
-                    <div className="text-[10px] font-semibold text-[#f1f5f9] mb-1">
-                      {flow.model} Output → {flow.title}
+                  <div key={idx} className="bg-[#020817]/80 rounded-xl p-4 border border-[#1e293b] shadow-md relative overflow-hidden">
+                    <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: flow.color === 'blue' ? '#3b82f6' : flow.color === 'purple' ? '#a855f7' : '#f59e0b' }}></div>
+                    <div className="text-base font-bold text-[#f1f5f9] mb-2 pl-2">
+                      {flow.model} Output → <span className="text-[#cbd5e1] font-medium">{flow.title}</span>
                     </div>
-                    <div className="text-[9px] text-[#94a3b8] space-y-0.5 mb-1.5">
-                      <div>
-                        Input: <span className="text-[#f1f5f9]">{flow.input}</span> → Output:{' '}
-                        <span className="text-[#f1f5f9] font-mono-display">{flow.output}</span>
+                    <div className="text-sm text-[#94a3b8] space-y-2 mb-3 pl-2">
+                      <div className="flex items-start gap-2">
+                        <span className="font-semibold text-[#cbd5e1] w-14 shrink-0">Input:</span>
+                        <span className="text-[#f1f5f9] bg-[#1e293b] px-2 py-0.5 rounded font-mono-display">{flow.input}</span>
                       </div>
-                      <div>
-                        Agent Action: <span className="text-[#cbd5e1]">{flow.action}</span>
+                      <div className="flex items-start gap-2">
+                        <span className="font-semibold text-[#cbd5e1] w-14 shrink-0">Output:</span>
+                        <span className="text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded font-mono-display font-bold">{flow.output}</span>
+                      </div>
+                      <div className="flex items-start gap-2 pt-1 border-t border-[#1e293b]/50">
+                        <span className="font-semibold text-[#cbd5e1] w-14 shrink-0 mt-1">Impact:</span>
+                        <span className="text-[#cbd5e1] leading-snug">{flow.action}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-[8px] font-medium px-1.5 py-0.5 rounded-full ${badgeColor}`}>{flow.model}</span>
-                      <ArrowRight className="w-3 h-3 text-[#64748b]" />
-                      <span className={`text-[8px] font-medium px-1.5 py-0.5 rounded-full ${targetColor}`}>{flow.target}</span>
+                    <div className="flex items-center gap-2 pl-2 mt-3 pt-2 bg-[#0f172a] -mx-4 -mb-4 p-4 border-t border-[#1e293b]">
+                      <span className={`text-xs font-bold px-2.5 py-1 rounded-md border ${badgeColor}`}>{flow.model} Prediction</span>
+                      <ArrowRight className="w-4 h-4 text-[#64748b]" />
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-green-500/20 text-green-400 border border-green-500/30">{flow.target}</span>
                     </div>
                   </div>
                 );

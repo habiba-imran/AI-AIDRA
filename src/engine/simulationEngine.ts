@@ -12,6 +12,7 @@ import type {
   SeverityLevel,
   SimulationActions,
   SimulationState,
+  SimSpeed,
   Toast,
   Victim,
 } from '../types';
@@ -39,6 +40,7 @@ export type { SimulationActions } from '../types';
 type SimAction =
   | { type: 'START' }
   | { type: 'PAUSE' }
+  | { type: 'SET_SPEED'; payload: SimSpeed }
   | { type: 'RESET'; payload: SimulationState }
   | { type: 'SET_SEARCH'; payload: SearchAlgorithm }
   | { type: 'SET_LOCAL_SEARCH'; payload: LocalSearch }
@@ -65,7 +67,8 @@ type SimAction =
   | { type: 'RUN_CSP' }
   | { type: 'RUN_ML_EVAL' }
   | { type: 'STEP_FORWARD' }
-  | { type: 'STEP_BACKWARD' };
+  | { type: 'STEP_BACKWARD' }
+  | { type: 'SET_SELECTED_CELL'; payload: { row: number; col: number } };
 
 function searchAlgoLabel(a: SearchAlgorithm): string {
   switch (a) {
@@ -880,6 +883,7 @@ function buildInitialState(): SimulationState {
     mlEvalSnapshot,
     victimMlEstimates: {},
     fuzzySnapshot: null,
+    selectedCell: null,
   };
   return recomputeDerived(base);
 }
@@ -1189,11 +1193,17 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
     case 'CLEAR_LOG':
       return recomputeDerived({ ...state, decisionLog: [] });
 
+    case 'SET_SPEED':
+      return { ...state, speed: action.payload };
+
     case 'DISMISS_TOAST':
       return recomputeDerived({
         ...state,
         toasts: state.toasts.filter((t) => t.id !== action.payload),
       });
+
+    case 'SET_SELECTED_CELL':
+      return { ...state, selectedCell: action.payload };
 
     case 'TRIGGER_AFTERSHOCK': {
       const grid = cloneGrid(state.grid);
@@ -1209,7 +1219,7 @@ function reduce(state: SimulationState, action: SimAction): SimulationState {
         };
         return recomputeDerived({ ...state, toasts: [...state.toasts, invalidToast] });
       }
-      grid[row][col] = { ...target, type: 'fire', risk: 0.85, passable: true, onFire: true };
+      grid[row][col] = { ...target, type: 'collapse', risk: 0.85, passable: true };
       const logEntry: DecisionLogEntry = {
         id: generateId(),
         timestamp: formatTime(state.elapsedSeconds),
@@ -2076,6 +2086,15 @@ export function useSimulation(): {
   const resetSimulation = useCallback(() => {
     dispatch({ type: 'RESET', payload: buildInitialState() });
   }, []);
+  const startSimulation = useCallback(() => {
+    dispatch({ type: 'START' });
+  }, []);
+  const pauseSimulation = useCallback(() => {
+    dispatch({ type: 'PAUSE' });
+  }, []);
+  const setSimSpeed = useCallback((speed: SimSpeed) => {
+    dispatch({ type: 'SET_SPEED', payload: speed });
+  }, []);
   const setSearchAlgorithm = useCallback((algo: SearchAlgorithm) => {
     dispatch({ type: 'SET_SEARCH', payload: algo });
   }, []);
@@ -2135,9 +2154,15 @@ export function useSimulation(): {
   const stepBackward = useCallback(() => {
     dispatch({ type: 'STEP_BACKWARD' });
   }, []);
+  const setSelectedCell = useCallback((row: number, col: number) => {
+    dispatch({ type: 'SET_SELECTED_CELL', payload: { row, col } });
+  }, []);
   const actions = useMemo<SimulationActions>(
     () => ({
       resetSimulation,
+      startSimulation,
+      pauseSimulation,
+      setSimSpeed,
       setSearchAlgorithm,
       setLocalSearch,
       setMLModel,
@@ -2155,9 +2180,13 @@ export function useSimulation(): {
       runMlEvaluation,
       stepForward,
       stepBackward,
+      setSelectedCell,
     }),
     [
       resetSimulation,
+      startSimulation,
+      pauseSimulation,
+      setSimSpeed,
       setSearchAlgorithm,
       setLocalSearch,
       setMLModel,
@@ -2175,6 +2204,7 @@ export function useSimulation(): {
       runMlEvaluation,
       stepForward,
       stepBackward,
+      setSelectedCell,
     ]
   );
 

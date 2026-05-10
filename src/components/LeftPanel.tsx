@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Zap, Construction, Flame } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import type { SimulationActions } from '../engine/simulationEngine';
 import type { SimulationState } from '../types';
 
@@ -45,22 +44,10 @@ function parseGridCoord(text: string): number | null {
 export default function LeftPanel({ state, actions, variant = 'standalone' }: LeftPanelProps) {
   const embedded = variant === 'embedded';
   const { ambulances, rescueTeam } = state;
-  const [actionRow, setActionRow] = useState('10');
-  const [actionCol, setActionCol] = useState('10');
-
-  const coordInputClass =
-    'min-w-0 h-8 px-2 bg-[#020817] border border-[#1e293b]/80 rounded text-[13px] text-[#f1f5f9] focus:outline-none focus:border-[#3b82f6]';
-
-  const runWithCoords = (rowText: string, colText: string, action: (row: number, col: number) => void) => {
-    const row = parseGridCoord(rowText);
-    const col = parseGridCoord(colText);
-    if (row === null || col === null) return;
-    action(row, col);
-  };
 
   const outerClass = embedded
     ? 'flex w-full min-h-0 min-w-0 flex-col bg-transparent'
-    : 'w-[clamp(180px,16vw,212px)] shrink-0 h-full min-h-0 flex flex-col bg-[#0f172a] border border-[#1e293b]/80 rounded-lg overflow-hidden';
+    : 'w-[280px] shrink-0 h-full min-h-0 flex flex-col bg-[#0f172a] border border-[#1e293b]/80 rounded-lg overflow-hidden';
 
   const scrollClass = embedded
     ? 'overflow-x-hidden px-2 pt-2 pb-2 space-y-1.5'
@@ -70,54 +57,7 @@ export default function LeftPanel({ state, actions, variant = 'standalone' }: Le
     <div className={outerClass}>
       <div className={scrollClass}>
         <div className="space-y-1.5">
-          <div className="flex items-center gap-1 min-w-0">
-            <span className="text-[7px] font-semibold uppercase tracking-[0.06em] text-[#64748b] leading-snug shrink-0 w-[3.5rem] select-none">
-              Simulation controls
-            </span>
-            <input
-              type="number"
-              min={0}
-              max={17}
-              value={actionRow}
-              onChange={(e) => setActionRow(e.target.value)}
-              className={`${coordInputClass} flex-1 min-w-0 h-8 px-1.5 text-center text-[13px]`}
-              placeholder="r"
-              aria-label="Row"
-            />
-            <input
-              type="number"
-              min={0}
-              max={17}
-              value={actionCol}
-              onChange={(e) => setActionCol(e.target.value)}
-              className={`${coordInputClass} flex-1 min-w-0 h-8 px-1.5 text-center text-[13px]`}
-              placeholder="c"
-              aria-label="Column"
-            />
-          </div>
-          <div className="grid grid-cols-3 gap-1">
-            <button
-              type="button"
-              className="min-h-[30px] h-[30px] flex items-center justify-center gap-0.5 rounded border border-red-500/50 bg-[#7f1d1d]/80 text-red-200 text-[10px] font-medium hover:bg-[#991b1b] cursor-pointer px-0.5"
-              onClick={() => runWithCoords(actionRow, actionCol, actions.triggerAfterShock)}
-            >
-              <Zap className="w-3 h-3 shrink-0" /> Shock
-            </button>
-            <button
-              type="button"
-              className="min-h-[30px] h-[30px] flex items-center justify-center gap-0.5 rounded border border-orange-500/50 text-orange-400 text-[10px] font-medium hover:bg-orange-500/10 cursor-pointer px-0.5"
-              onClick={() => runWithCoords(actionRow, actionCol, actions.blockRoadAt)}
-            >
-              <Construction className="w-3 h-3 shrink-0" /> Block
-            </button>
-            <button
-              type="button"
-              className="min-h-[30px] h-[30px] flex items-center justify-center gap-0.5 rounded bg-gradient-to-r from-red-600 to-orange-600 text-[#f1f5f9] text-[10px] font-medium hover:from-red-500 hover:to-orange-500 cursor-pointer px-0.5"
-              onClick={() => runWithCoords(actionRow, actionCol, actions.spreadFireFrom)}
-            >
-              <Flame className="w-3 h-3 shrink-0" /> Fire
-            </button>
-          </div>
+          {/* Controls moved to Simulator Toolset box */}
         </div>
 
         <div>

@@ -7,6 +7,7 @@ import type {
   ObjectivePriority,
   RescueTeam,
   SearchAlgorithm,
+  SimulationActions,
   Victim,
 } from '../types';
 
@@ -88,6 +89,7 @@ interface CenterPanelProps {
   rescueTeam: RescueTeam;
   objectivePriority: ObjectivePriority;
   searchAlgorithm: SearchAlgorithm;
+  actions: SimulationActions;
   routeAmb1?: Array<{ row: number; col: number }>;
   routeAmb2?: Array<{ row: number; col: number }>;
   routeTeam?: Array<{ row: number; col: number }>;
@@ -100,6 +102,7 @@ export default function CenterPanel({
   rescueTeam,
   objectivePriority,
   searchAlgorithm,
+  actions,
   routeAmb1 = [],
   routeAmb2 = [],
   routeTeam = [],
@@ -204,25 +207,47 @@ export default function CenterPanel({
   return (
     <div className="flex-1 min-w-0 min-h-0 h-full overflow-hidden flex items-center justify-center p-1">
       <div
-        className="card-glass border border-[#1e293b] rounded-xl overflow-hidden flex flex-col min-h-0 h-full max-h-full w-full max-w-[min(748px,100%,calc(100vw-36rem))] mx-auto shadow-lg shadow-black/20"
+        className="card-glass border border-[#1e293b] rounded-xl overflow-hidden flex flex-col min-h-0 h-full max-h-full w-full max-w-[min(800px,100%)] mx-auto shadow-lg shadow-black/20"
       >
-          <div className="shrink-0 bg-[#451a03] border-b border-amber-900/50 px-2.5 py-1 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span className="text-amber-400 text-[10px] font-semibold leading-tight truncate">
-                {objectiveBannerText(objectivePriority)}
+          {/* Mini KPI Bar */}
+          <div className="shrink-0 px-2.5 py-1.5 bg-[#0f172a]/40 border-b border-[#1e293b]/50 flex items-center justify-center gap-4">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-[#94a3b8]">📦 Saved:</span>
+              <span className="text-[10px] font-bold text-[#f1f5f9] tabular-nums">
+                {victims.filter(v => v.status === 'rescued').length}/{victims.length}
               </span>
             </div>
-            <span className="text-amber-500/70 text-[8px] font-mono-display shrink-0 hidden sm:inline">
-              {algoObjectiveSubtitle(searchAlgorithm, objectivePriority)}
-            </span>
+            <div className="w-px h-3 bg-[#1e293b]" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-[#94a3b8]">⏱ Avg:</span>
+              <span className="text-[10px] font-bold text-green-400 tabular-nums">
+                {(() => {
+                  const rescued = victims.filter(v => v.status === 'rescued' && v.rescuedAtSeconds !== null);
+                  if (rescued.length === 0) return '—';
+                  const avg = rescued.reduce((acc, v) => acc + (v.rescuedAtSeconds || 0), 0) / rescued.length;
+                  return `${Math.round(avg)}s`;
+                })()}
+              </span>
+            </div>
+            <div className="w-px h-3 bg-[#1e293b]" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-[#94a3b8]">⚠️ Risk:</span>
+              <span className="text-[10px] font-bold text-red-400 tabular-nums">
+                {Math.round(victims.reduce((acc, v) => acc + (v.status === 'waiting' ? v.priorityScore : 0), 0))}pts
+              </span>
+            </div>
           </div>
 
-          <div className="shrink-0 px-2.5 pt-1.5 pb-0.5 flex items-center justify-between gap-2">
+          <div className="shrink-0 px-2.5 pt-1.5 pb-0.5 flex items-center justify-between gap-2 relative">
             <span className="text-[9px] font-semibold tracking-[0.12em] text-[#3b82f6] uppercase truncate">
               Grid map
             </span>
-            <span className="text-[8px] text-[#64748b] shrink-0">Hover cells</span>
+            
+            {/* Collapsed Objective Pill */}
+            <div className="absolute top-1 right-2.5 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[8px] font-bold animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.1)]">
+              <AlertTriangle className="w-2.5 h-2.5" />
+              {objectiveBannerText(objectivePriority)}
+            </div>
           </div>
 
           <div
@@ -314,6 +339,7 @@ export default function CenterPanel({
                         }}
                         onMouseEnter={() => setHoveredCell({ row, col })}
                         onMouseLeave={() => setHoveredCell(null)}
+                        onClick={() => actions.setSelectedCell(row, col)}
                       >
                         {overlay && (
                           <span className="absolute text-[8px] opacity-70 select-none">{overlay}</span>

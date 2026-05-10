@@ -49,7 +49,7 @@ function softmax(logits: number[]): number[] {
   return exps.map((e) => e / s);
 }
 
-function generateSyntheticDataset(seed: number): { x: number[][]; y: number[] } {
+export function generateSyntheticDataset(seed: number): { x: number[][]; y: number[] } {
   const rng = mulberry32(seed);
   const x: number[][] = [];
   const y: number[] = [];
@@ -367,6 +367,7 @@ export function runFullMlEvaluation(): MlEvalSnapshot {
   const rng = mulberry32(20260205);
   const { x, y } = generateSyntheticDataset(9001);
   const { trainX, trainY, testX, testY } = stratifiedTrainTestSplit(x, y, TRAIN_FRACTION, rng);
+  const evaluatedAtMs = Date.now();
 
   const { k: knnK, accByK } = pickBestK(trainX, trainY, testX, testY);
 
@@ -383,6 +384,7 @@ export function runFullMlEvaluation(): MlEvalSnapshot {
 
   return {
     datasetVersion: DATASET_VERSION,
+    evaluatedAtMs,
     totalSamples: TOTAL_SAMPLES,
     trainSize: trainX.length,
     testSize: testX.length,

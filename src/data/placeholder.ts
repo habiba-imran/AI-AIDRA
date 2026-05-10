@@ -540,8 +540,6 @@ export const tradeoffData = [
 
 export const TABS = [
   { id: 'live-sim', label: 'Live Simulation', icon: 'Map' },
-  { id: 'search-trace', label: 'Search Trace', icon: 'Search' },
-  { id: 'csp-solver', label: 'CSP Solver', icon: 'Puzzle' },
   { id: 'ml-studio', label: 'ML Studio', icon: 'Bot' },
   { id: 'analytics', label: 'Analytics', icon: 'BarChart3' },
 ] as const;

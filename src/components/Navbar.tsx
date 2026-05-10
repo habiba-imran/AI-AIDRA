@@ -20,20 +20,20 @@ export default function Navbar({
   toastCount,
 }: NavbarProps) {
   return (
-    <nav className="h-[60px] flex items-center justify-between px-5 bg-[#0a0f1e] border-b border-[#1e293b] shrink-0 z-50">
+    <nav className="min-h-[4rem] flex flex-col md:flex-row items-center justify-between px-5 py-3 md:py-0 bg-[#0a0f1e] border-b border-[#1e293b] shrink-0 z-50 gap-4">
       <div className="flex items-center gap-3 shrink-0">
-        <div className="w-9 h-9 rounded-full bg-red-500/20 flex items-center justify-center glow-red">
+        <div className="w-9 h-9 rounded-full bg-red-500/20 flex items-center justify-center glow-red shrink-0">
           <Cross className="w-5 h-5 text-red-500" />
         </div>
-        <div className="leading-tight">
-          <div className="text-[22px] font-bold tracking-wide text-[#f1f5f9] leading-none">AIDRA</div>
-          <div className="text-[10px] text-[#94a3b8] leading-tight mt-0.5">
+        <div className="leading-tight shrink-0">
+          <div className="text-[1.375rem] font-bold tracking-wide text-[#f1f5f9] leading-none">AIDRA</div>
+          <div className="hidden sm:block text-[10px] text-[#94a3b8] leading-tight mt-0.5">
             Adaptive Intelligent Disaster Response Agent
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1 flex-wrap justify-center order-3 md:order-2">
         {TABS.map((tab) => {
           const Icon = iconMap[tab.icon];
           const isActive = activeTab === tab.id;
@@ -42,7 +42,7 @@ export default function Navbar({
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
               className={`
-                flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium transition-all duration-200 cursor-pointer
+                flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium transition-all duration-200 cursor-pointer whitespace-nowrap
                 ${isActive
                   ? 'bg-[#3b82f6] text-[#f1f5f9] glow-blue'
                   : 'bg-transparent text-[#94a3b8] hover:bg-[#3b82f6]/10 hover:text-[#93c5fd]'
@@ -50,13 +50,13 @@ export default function Navbar({
               `}
             >
               {Icon && <Icon className="w-3.5 h-3.5" />}
-              {tab.label}
+              <span className={isActive ? 'inline' : 'hidden lg:inline'}>{tab.label}</span>
             </button>
           );
         })}
       </div>
 
-      <div className="flex items-center gap-4 shrink-0">
+      <div className="flex items-center gap-4 shrink-0 order-2 md:order-3">
         <span className="font-mono-display text-[#22c55e] text-[13px] font-medium">{formatElapsed(elapsedSeconds)}</span>
         <div className="relative cursor-pointer">
           <Bell className="w-5 h-5 text-[#94a3b8] hover:text-[#f1f5f9] transition-colors" />
