@@ -24,7 +24,7 @@ export default function Sidebar({
 
   // USER: Update your links here
   const GITHUB_LINK = "https://github.com/habiba-imran/AI-AIDRA";
-  const LINKEDIN_LINK = "https://linkedin.com";
+  const LINKEDIN_LINK = "https://shorturl.at/L2BfO";
 
   return (
     <aside className="w-16 flex flex-col items-center py-4 bg-[#0a0f1e] border-r border-[#1e293b] shrink-0 z-50 h-screen">

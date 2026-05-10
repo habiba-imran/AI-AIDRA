@@ -13,7 +13,7 @@ A fully integrated hybrid AI simulation system for autonomous urban disaster tri
 | Resource | URL |
 |----------|-----|
 | 🌐 Deployed Demo | https://aidra-048.netlify.app/ |
-| 🎥 LinkedIn Demo Video | Video Demonstration: https://shorturl.at/L2BfO |
+| 🎥 LinkedIn Demo Video | https://shorturl.at/L2BfO |
 
 ---
 
